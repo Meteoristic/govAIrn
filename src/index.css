@@ -1,0 +1,112 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@700,500,300,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-charcoal text-phosphor font-inter;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-satoshi;
+  }
+}
+
+@layer utilities {
+  .glow {
+    text-shadow: 0 0 5px theme('colors.cyan'), 0 0 20px theme('colors.cyan/50');
+  }
+  
+  .glow-box {
+    box-shadow: 0 0 10px theme('colors.cyan/30'), 0 0 20px theme('colors.cyan/20');
+  }
+  
+  .glow-indigo {
+    box-shadow: 0 0 10px theme('colors.indigo/30'), 0 0 20px theme('colors.indigo/20');
+  }
+  
+  .glow-gold {
+    box-shadow: 0 0 10px theme('colors.gold/30'), 0 0 20px theme('colors.gold/20');
+  }
+  
+  .gradient-background {
+    background: linear-gradient(135deg, theme('colors.charcoal') 0%, theme('colors.graphite') 100%);
+  }
+  
+  .grid-pattern {
+    background-image: 
+      radial-gradient(circle, theme('colors.silver/5') 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+  
+  /* Button glow utilities */
+  .btn-glow-subtle {
+    box-shadow: 0 0 5px theme('colors.indigo/10');
+  }
+  
+  .btn-glow-medium {
+    box-shadow: 0 0 8px theme('colors.indigo/20');
+  }
+  
+  .btn-glow-strong {
+    box-shadow: 0 0 12px theme('colors.indigo/30');
+  }
+}
