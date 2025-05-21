@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from 'uuid';
 import { ChevronUp, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,12 @@ import { SnapshotService } from "@/lib/services/snapshot.service";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { OpenAIService } from '@/lib/services/openai.service';
+import { useToast } from "@/components/ui/use-toast";
+import { useWalletClient } from "wagmi";
+import { PersonaService } from "@/lib/services/persona.service";
+import { eventBus, EVENTS } from '@/lib/utils/events';
+import { useAuthModal } from "@/hooks/useAuthModal";
+import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 
 // Define the necessary types if they're not imported from a central location
 interface Dao {
@@ -95,11 +101,13 @@ type FormattedProposal = Proposal & {
 };
 
 // Array of supported DAOs we want to focus on (using exact Snapshot space IDs)
-const SUPPORTED_DAOS = [
+export const SUPPORTED_DAOS = [
   { id: "aavedao.eth", name: "Aave", icon: "A" },
   { id: "ens.eth", name: "ENS", icon: "E" },
   { id: "gitcoindao.eth", name: "Gitcoin", icon: "G" },
-  { id: "uniswapgovernance.eth", name: "Uniswap", icon: "U" }
+  { id: "uniswapgovernance.eth", name: "Uniswap", icon: "U" },
+  { id: "stakedao.eth", name: "Stake DAO", icon: "S" }, // Added Stake DAO
+  { id: "cryodao.eth", name: "CryoDAO", icon: "C" }  // Added CryoDAO
 ];
 
 // Helper to get the right status styling
@@ -118,15 +126,73 @@ const getStatusStyles = (status: string) => {
   }
 };
 
+// Add a cache for AI decisions to prevent redundant API calls  
+const aiDecisionCache = new Map<string, AIDecision>();
+
+// Replace verbose debugging logs with structured logging for significant actions
+const logDebug = (message: string, data?: any) => {
+  if (import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEBUG_LOGS === 'true') {
+    if (data) {
+      console.log(`[ProposalFeed] ${message}`, data);
+    } else {
+      console.log(`[ProposalFeed] ${message}`);
+    }
+  }
+};
+
 export default function ProposalFeed() {
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [loadedProposals, setLoadedProposals] = useState<FormattedProposal[]>([]);
+  logDebug("[ProposalFeed] Component RENDERED/RE-RENDERED"); // Log component rendering
+  const { user, isAuthenticated } = useAuth();
+  const { checkAuthAccess, isModalOpen, requiredFeature, openAuthModal, closeAuthModal } = useAuthModal();
+  
+  // State for proposals and loading
+  const [proposals, setProposals] = useState<FormattedProposal[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingLive, setLoadingLive] = useState(false);
   const [dataSource, setDataSource] = useState<'mock' | 'real'>('mock');
+  const { toast } = useToast();
+  const [isExplainerOpen, setIsExplainerOpen] = useState(false);
+  
+  // Use a ref to maintain the latest supported DAOs
+  const supportedDaosRef = useRef(SUPPORTED_DAOS);
+  
+  // State for wallet and persona
+  const [activePersonaFromApi, setActivePersonaFromApi] = useState<any>(null);
+  // Get wallet from wagmi
+  const { data: walletClient } = useWalletClient();
+  const address = walletClient?.account?.address;
+  const isConnected = !!address;
+  
+  // Load active persona on component mount if wallet is connected
+  useEffect(() => {
+    const loadActivePersona = async () => {
+      if (isConnected && address) {
+        try {
+          const isDevelopmentMode = import.meta.env.DEV;
+          logDebug('[ProposalFeed] Loading active persona for wallet:', address);
+          
+          // Development mode - use wallet address
+          if (isDevelopmentMode) {
+            const persona = await PersonaService.getActivePersonaByWallet(address);
+            if (persona) {
+              logDebug('[ProposalFeed] Found active persona by wallet:', persona.id);
+              setActivePersonaFromApi(persona);
+            } else {
+              logDebug('[ProposalFeed] No active persona found for wallet:', address);
+            }
+          }
+        } catch (error) {
+          logDebug('[ProposalFeed] Error loading active persona:', error);
+        }
+      }
+    };
+    
+    loadActivePersona();
+  }, [isConnected, address]);
   
   // Local state for mock data - used as fallback if live proposals can't be fetched
   const mockProposals: FormattedProposal[] = [
-    // Mock proposal data kept unchanged
+    // Existing Uniswap mock proposal
     {
       id: "87",
       title: "Deploy New Treasury Allocator",
@@ -208,234 +274,482 @@ export default function ProposalFeed() {
         ]
       }
     },
-    // Add other mock data items as needed
+    
+    // New Aave mock proposal
+    {
+      id: "42",
+      title: "Aave V3 Safety Module Parameter Updates",
+      description: "This proposal aims to adjust the Safety Module (SM) parameters for Aave V3 to enhance protocol resilience against market shocks. The proposed changes include updating risk parameters, cooldown periods, and slashing mechanisms.",
+      status: "Active",
+      url: "#",
+      votingDeadline: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      votingStart: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      dao: {
+        id: "aave",
+        name: "Aave",
+        icon: "A",
+      },
+      votes: {
+        yes: 1850,
+        no: 320,
+        abstain: 150,
+        total: 2320
+      },
+      timeLeft: "3d 8h remaining",
+      summary: "This proposal seeks to update Aave's Safety Module parameters to improve protocol resilience against market volatility and enhance staker security. Key changes include adjusted slashing conditions and cooldown period optimizations.",
+      impact: "Medium",
+      confidence: 84,
+      personaMatch: 76,
+      startTime: "May 2, 2025",
+      endTime: "May 7, 2025",
+      votingType: "Simple Majority",
+      quorum: "3%",
+      pros: [
+        "Enhances protocol security during high market volatility",
+        "Optimizes staking rewards for long-term participants",
+        "Implements learnings from recent market stress tests"
+      ],
+      cons: [
+        "Changes cooldown periods which affects staker flexibility",
+        "Slightly increases complexity of the safety module"
+      ],
+      isRealData: false,
+      ai_decision: {
+        id: `mock-42`,
+        user_id: 'mock-user',
+        proposal_id: "42",
+        persona_id: 'mock-persona',
+        decision: 'for',
+        confidence: 84,
+        persona_match: 76,
+        reasoning: 'This proposal significantly improves protocol safety while maintaining a reasonable balance with user flexibility. The changes address known vulnerabilities and align with your persona\'s preference for security enhancements.',
+        chain_of_thought: 'Mock AI decision',
+        created_at: new Date().toISOString(),
+        requires_recalculation: false,
+        factors: [
+          {
+            id: `factor-1-42`,
+            ai_decision_id: `mock-42`,
+            factor_name: 'Security Improvement',
+            factor_value: 9,
+            factor_weight: 8,
+            explanation: 'Significant improvements to protocol security mechanisms',
+            created_at: new Date().toISOString()
+          },
+          {
+            id: `factor-2-42`,
+            ai_decision_id: `mock-42`,
+            factor_name: 'Staker Experience',
+            factor_value: 6,
+            factor_weight: 7,
+            explanation: 'Better aligned incentives for long-term stakers',
+            created_at: new Date().toISOString()
+          },
+          {
+            id: `factor-3-42`,
+            ai_decision_id: `mock-42`,
+            factor_name: 'User Flexibility',
+            factor_value: -3,
+            factor_weight: 5,
+            explanation: 'Cooldown changes may limit flexibility for some users',
+            created_at: new Date().toISOString()
+          }
+        ]
+      }
+    },
+
+    // New Gitcoin mock proposal
+    {
+      id: "63",
+      title: "Gitcoin Grants Stack Integration with Base",
+      description: "This proposal seeks to integrate Gitcoin Grants Stack with Base for more efficient and cost-effective quadratic funding rounds. The integration will leverage Base's L2 scaling solution to reduce gas costs and improve the grants distribution process.",
+      status: "Pending",
+      url: "#",
+      votingDeadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+      votingStart: new Date(Date.now()).toISOString(),
+      dao: {
+        id: "gitcoin",
+        name: "Gitcoin",
+        icon: "G",
+      },
+      votes: {
+        yes: 980,
+        no: 160,
+        abstain: 130,
+        total: 1270
+      },
+      timeLeft: "5d 0h remaining",
+      summary: "This proposal aims to integrate Gitcoin Grants with Base L2 to reduce gas costs, improve transaction speeds, and make participation more accessible for smaller donors. The integration will become effective starting with the next grants round.",
+      impact: "High",
+      confidence: 92,
+      personaMatch: 83,
+      startTime: "May 4, 2025",
+      endTime: "May 9, 2025",
+      votingType: "Simple Majority",
+      quorum: "5%",
+      pros: [
+        "Reduces gas costs for grant applications and donations by ~95%",
+        "Makes matching fund distribution more efficient and timely",
+        "Opens participation to smaller donors previously priced out by gas fees",
+        "Expands the Gitcoin ecosystem to Base users and projects"
+      ],
+      cons: [
+        "Requires changes to the existing grants interface",
+        "Will need a bridge for cross-chain asset movements"
+      ],
+      isRealData: false,
+      isBaseEcosystem: true,
+      ai_decision: {
+        id: `mock-63`,
+        user_id: 'mock-user',
+        proposal_id: "63",
+        persona_id: 'mock-persona',
+        decision: 'for',
+        confidence: 92,
+        persona_match: 83,
+        reasoning: 'This proposal represents a significant improvement to the Gitcoin grants infrastructure, with substantial gas savings that will make funding more accessible to small donors. The Base integration aligns with scaling goals and improves the overall public goods funding ecosystem.',
+        chain_of_thought: 'Mock AI decision',
+        created_at: new Date().toISOString(),
+        requires_recalculation: false,
+        factors: [
+          {
+            id: `factor-1-63`,
+            ai_decision_id: `mock-63`,
+            factor_name: 'Cost Reduction',
+            factor_value: 10,
+            factor_weight: 9,
+            explanation: 'Dramatic reduction in gas fees improves accessibility',
+            created_at: new Date().toISOString()
+          },
+          {
+            id: `factor-2-63`,
+            ai_decision_id: `mock-63`,
+            factor_name: 'Ecosystem Growth',
+            factor_value: 8,
+            factor_weight: 8,
+            explanation: 'Expands Gitcoin\'s reach to new users and projects',
+            created_at: new Date().toISOString()
+          },
+          {
+            id: `factor-3-63`,
+            ai_decision_id: `mock-63`,
+            factor_name: 'Implementation Complexity',
+            factor_value: -2,
+            factor_weight: 6,
+            explanation: 'Minor UI changes required and bridge implementation',
+            created_at: new Date().toISOString()
+          }
+        ]
+      }
+    }
   ];
 
   useEffect(() => {
-    // Always load mock data first to avoid unnecessary API calls
+    logDebug("[ProposalFeed] useEffect (initial load) triggered.");
     const loadProposals = async () => {
-      setLoadedProposals(mockProposals);
-      setDataSource('mock');
+      logDebug("[ProposalFeed] useEffect: Initial loadProposals (mock) starting.");
+      setProposals(mockProposals);
       setLoading(false);
+      logDebug("[ProposalFeed] useEffect: Initial mock proposals loaded.");
     };
-
     loadProposals();
   }, []);
 
+  // Listen for DAO list updates
+  useEffect(() => {
+    const handleDaoListUpdated = (updatedDaos: any[]) => {
+      logDebug(`[ProposalFeed] Received DAO_LIST_UPDATED event with ${updatedDaos.length} DAOs`);
+      supportedDaosRef.current = updatedDaos;
+      
+      
+      // If we're currently showing live data, refresh it to include new DAOs
+      if (dataSource === 'real') {
+        toast({
+          title: "DAO List Updated",
+          description: "Refreshing proposal feed with newly added DAOs...",
+          duration: 3000,
+        });
+        
+        // Wait a moment before reloading to allow the toast to be seen
+        setTimeout(() => {
+          loadLiveData();
+        }, 1000);
+      }
+    };
+    
+    // Subscribe to the DAO list updated event
+    eventBus.on(EVENTS.DAO_LIST_UPDATED, handleDaoListUpdated);
+    
+    // Cleanup the event listener when component unmounts
+    return () => {
+      eventBus.off(EVENTS.DAO_LIST_UPDATED, handleDaoListUpdated);
+    };
+  }, [dataSource]);
+
   // Function to manually load live data when requested by user
   const loadLiveData = async () => {
+    console.log("[ProposalFeed] loadLiveData FUNCTION CALLED (Load Live Data button clicked)."); // VERY FIRST LINE IN FUNCTION
     try {
-      // Only fetch real proposals if user is logged in
+      // Set both loading indicators to true for UI feedback
       setLoading(true);
-      console.log("Loading live data - user triggered");
+      setLoadingLive(true);
+      // Immediately set the dataSource to 'real' to update UI
+      setDataSource('real');
       
-      // Use a timeout to ensure the loading state is reflected in the UI
-      setTimeout(async () => {
-        try {
-          // Fetch live proposals directly from Snapshot API
-          await fetchLiveProposalsDirectly();
-        } catch (error) {
-          console.error("Error loading live data:", error);
-          // Fallback to mock data if there's an error
-          setLoadedProposals(mockProposals);
-          setDataSource('mock');
-        } finally {
-          setLoading(false);
-        }
-      }, 100);
-    } catch (error) {
-      console.error("Error in loadLiveData:", error);
-      setLoadedProposals(mockProposals);
-      setDataSource('mock');
-      setLoading(false);
-    }
-  };
-
-  // New improved function to directly fetch and display proposals without database dependency
-  const fetchLiveProposalsDirectly = async () => {
-    try {
-      setLoading(true);
-      console.log("Fetching live proposals directly from Snapshot API...");
+      // Display a toast notification to inform the user
+      toast({
+        title: "Loading live proposals",
+        description: "Fetching active proposals from Snapshot and generating AI decisions... This may take a few moments.",
+        duration: 5000,
+      });
       
-      let allProposals: any[] = [];
-      
-      // Fetch ONLY active proposals directly from Snapshot for each DAO
-      for (const dao of SUPPORTED_DAOS) {
-        console.log(`Fetching active proposals for ${dao.name} (${dao.id})...`);
-        try {
-          // Only fetch active proposals to reduce API calls
-          const activeProposals = await SnapshotService.getProposals(dao.id, 'active');
+      // Fetch live proposals from Snapshot API and generate AI decisions
+      try {
+        const liveProposals = await fetchLiveProposalsDirectly();
+        
+        if (liveProposals && liveProposals.length > 0) {
+          console.log(`Successfully loaded ${liveProposals.length} live proposals`);
+          // Update state with the live proposals and mark data source as real
+          setProposals(liveProposals);
           
-          if (activeProposals && activeProposals.length > 0) {
-            console.log(`Found ${activeProposals.length} active proposals for ${dao.name}`);
-            
-            // Add DAO info to each proposal for unified processing
-            const proposalsWithDAO = activeProposals.map(p => ({
-              ...p,
-              dao_info: {
-                id: dao.id,
-                name: dao.name,
-                icon: dao.icon
-              }
-            }));
-            
-            allProposals = [...allProposals, ...proposalsWithDAO];
-          } else {
-            console.log(`No active proposals found for ${dao.name}`);
-          }
-        } catch (error) {
-          console.error(`Error fetching proposals for ${dao.name}:`, error);
+          // Ensure data source is set to real
+          setDataSource('real');
+          
+          // Success notification
+          toast({
+            title: "Live data loaded",
+            description: `${liveProposals.length} active proposals loaded and analyzed with AI.`,
+            duration: 3000,
+          });
+        } else {
+          console.warn("No live active proposals found, using mock data");
+          setProposals(mockProposals);
+          
+          // If no proposals found, revert to mock data
+          setDataSource('mock');
+          
+          toast({
+            title: "No active proposals found",
+            description: "Using mock data instead. Try again later.",
+            variant: "destructive",
+            duration: 5000,
+          });
         }
-      }
-      
-      console.log(`Total active proposals found: ${allProposals.length}`);
-      
-      if (allProposals.length === 0) {
-        console.log("No active proposals found, using mock data");
-        setLoadedProposals(mockProposals);
+      } catch (error) {
+        console.error("Error loading live data:", error);
+        // Fallback to mock data if there's an error
+        setProposals(mockProposals);
+        
+        // If error, revert to mock data
         setDataSource('mock');
+        
+        // Error notification
+        toast({
+          title: "Could not load live data",
+          description: "Using mock data instead. Check console for details.",
+          variant: "destructive",
+          duration: 5000,
+        });
+      } finally {
+        // Always turn off loading indicators when done
         setLoading(false);
-        return;
-      }
-      
-      // Limit to max 3 proposals to avoid excessive OpenAI API calls
-      const limitedProposals = allProposals.slice(0, 3);
-      console.log(`Processing ${limitedProposals.length} out of ${allProposals.length} total proposals`);
-      
-      // Process proposals with AI decisions
-      const processedProposals = await processProposalsDirectly(limitedProposals);
-      
-      if (processedProposals.length > 0) {
-        console.log(`Successfully processed ${processedProposals.length} real proposals`);
-        setLoadedProposals(processedProposals);
-        setDataSource('real');
-      } else {
-        // Fallback to mock data if processing failed
-        console.log("Failed to process real proposals, using mock data");
-        setLoadedProposals(mockProposals);
-        setDataSource('mock');
+        setLoadingLive(false);
       }
     } catch (error) {
-      console.error("Error fetching proposals:", error);
-      // Fallback to mock data on error
-      setLoadedProposals(mockProposals);
+      console.error("[ProposalFeed] CRITICAL ERROR in loadLiveData top-level try-catch:", error);
+      setProposals(mockProposals);
+      
+      // If critical error, revert to mock data
       setDataSource('mock');
-    } finally {
       setLoading(false);
+      setLoadingLive(false);
+      
+      // Error notification
+      toast({
+        title: "Error loading data",
+        description: "An unexpected error occurred. Using mock data instead.",
+        variant: "destructive",
+        duration: 5000,
+      });
     }
   };
 
-  // Add a cache for AI decisions to prevent redundant API calls  
-  const aiDecisionCache = new Map<string, AIDecision>();
-  
-  // Process proposals directly with OpenAI
+  // Improved function to fetch live proposals directly from Snapshot API
+  const fetchLiveProposalsDirectly = async () => {
+    console.log("Fetching live proposals directly from Snapshot API...");
+    
+    let allProposals = [];
+    
+    // Get the latest supported DAOs from the ref
+    const currentSupportedDaos = supportedDaosRef.current;
+    console.log(`Using ${currentSupportedDaos.length} supported DAOs for fetching proposals:`, 
+      currentSupportedDaos.map(dao => dao.id).join(', '));
+    
+    // Try to find active proposals for each DAO
+    for (const dao of currentSupportedDaos) {
+      console.log(`Fetching active proposals for ${dao.name} (${dao.id})...`);
+      try {
+        // ONLY fetch active proposals - no fallback to closed
+        const activeProposals = await SnapshotService.getProposals(dao.id, 'active');
+        
+        if (activeProposals && activeProposals.length > 0) {
+          console.log(`Found ${activeProposals.length} active proposals for ${dao.name}`);
+          
+          // Add DAO info to each proposal for unified processing
+          const proposalsWithDAO = activeProposals.map(p => ({
+            ...p,
+            dao_info: {
+              id: dao.id,
+              name: dao.name,
+              icon: dao.icon
+            }
+          }));
+          
+          allProposals = [...allProposals, ...proposalsWithDAO];
+        } else {
+          console.log(`No active proposals for ${dao.name}.`);
+        }
+      } catch (error) {
+        console.error(`Error fetching proposals for ${dao.name}:`, error);
+      }
+    }
+    
+    console.log(`Total active proposals found: ${allProposals.length}`);
+    
+    if (allProposals.length === 0) {
+      console.log("No active proposals found for any supported DAO");
+      toast({
+        title: "No Active Proposals",
+        description: "There are currently no active proposals in any of the supported DAOs. Please try again later.",
+        variant: "destructive",
+        duration: 5000,
+      });
+      return [];
+    }
+    
+    // Limit to max 3 proposals to avoid excessive OpenAI API calls
+    const limitedProposals = allProposals.slice(0, 3);
+    console.log(`Processing ${limitedProposals.length} out of ${allProposals.length} total proposals`);
+    
+    // Process proposals with AI decisions
+    const processedProposals = await processProposalsDirectly(limitedProposals);
+    return processedProposals;
+  };
+
+  // Process proposals with AI decisions
   const processProposalsDirectly = async (rawProposals: any[]): Promise<FormattedProposal[]> => {
     try {
-      const processedProposals: FormattedProposal[] = [];
+      console.log(`[ProposalFeed] Processing ${rawProposals.length} proposals with AI decisions...`);
+      const processedProposals = [];
       const userId = user?.id || 'anonymous';
-
-      console.log(`Processing ${rawProposals.length} proposals with AI...`);
+      console.log(`[ProposalFeed] Using user ID: ${userId}`);
       
-      // Simple processing without parallelization or batching to avoid potential issues
+      // Get user persona for better AI decisions
+      const personaPreferences = getUserPersonaPreferences();
+      console.log(`[ProposalFeed] User persona preferences:`, personaPreferences);
+      
+      // Process each proposal one by one
+      let proposalIndex = 0;
+      const totalProposals = rawProposals.length;
+      
       for (const rawProposal of rawProposals) {
+        proposalIndex++;
         try {
-          console.log(`Processing proposal: ${rawProposal.title}`);
+          console.log(`[ProposalFeed] Processing proposal ${proposalIndex}/${totalProposals}: "${rawProposal.title}"`);
+          
+          // Update loading toast to show progress
+          toast({
+            title: `Processing Proposal ${proposalIndex}/${totalProposals}`,
+            description: `Generating AI analysis for "${rawProposal.title.substring(0, 30)}..."`,
+            duration: 3000,
+          });
           
           // Truncate body to reduce token usage
           const truncatedBody = rawProposal.body ? 
             rawProposal.body.substring(0, 1000) : 
             'No description available';
+          console.log(`[ProposalFeed] Truncated proposal body to ${truncatedBody.length} characters`);
           
-          // Default values in case AI generation fails
-          let aiDecision: AIDecision = {
-            decision: 'for',
-            confidence: 70 + Math.floor(Math.random() * 20), // 70-90%
-            persona_match: 50 + Math.floor(Math.random() * 30), // 50-80%
-            reasoning: `This proposal could benefit ${rawProposal.dao_info?.name || 'the DAO'}.`,
-            proposal_summary: `This proposal aims to improve governance in ${rawProposal.dao_info?.name || 'the DAO'}.`,
-            recommendation: `Consider voting for this proposal based on its potential benefits to ${rawProposal.dao_info?.name || 'this DAO'}.`,
-            factors: [
-              {
-                id: `fallback-1-${rawProposal.id}`,
-                ai_decision_id: `fallback-${rawProposal.id}`,
-                created_at: new Date().toISOString(),
-                factor_name: "Default Factor",
-                factor_value: 5,
-                factor_weight: 5,
-                explanation: `Potentially beneficial for ${rawProposal.dao_info?.name || 'the DAO'}`
-              },
-              {
-                id: `fallback-2-${rawProposal.id}`,
-                ai_decision_id: `fallback-${rawProposal.id}`,
-                created_at: new Date().toISOString(),
-                factor_name: "Implementation Risk",
-                factor_value: -3,
-                factor_weight: 5, 
-                explanation: "May require significant development resources"
-              }
-            ]
-          };
-            
-          try {
-            // Try to get AI decision, but use default if it fails
-            aiDecision = await generateAIDecision(rawProposal, true, userId);
-          } catch (error) {
-            console.error(`Error generating AI decision for proposal ${rawProposal.id}, using fallback:`, error);
-            // Continue with default values set above
-          }
+          // Generate AI decision for this proposal
+          let aiDecision;
+          let generationSuccessful = false;
           
-          // Get vote information (simplified for this implementation)
-          const votes = {
-            yes: Math.floor(Math.random() * 1000) + 200,
-            no: Math.floor(Math.random() * 500) + 100,
-            abstain: Math.floor(Math.random() * 200) + 50,
-            total: 0
-          };
-          votes.total = votes.yes + votes.no + votes.abstain;
+          // Add a random delay (1-3 seconds) before each proposal to avoid rate limits
+          const delayMs = 1000 + Math.floor(Math.random() * 2000);
+          console.log(`[ProposalFeed] Adding delay of ${delayMs}ms before OpenAI API call to avoid rate limits...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
           
-          // Extract pros and cons from factors
-          const pros: string[] = [];
-          const cons: string[] = [];
-          
-          if (aiDecision.factors && aiDecision.factors.length > 0) {
-            aiDecision.factors.forEach(factor => {
-              const explanation = factor.explanation || '';
+          // Try up to 3 times to generate AI decision
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              console.log(`[ProposalFeed] Attempt ${attempt}/3 to generate AI decision for proposal "${rawProposal.title}" (ID: ${rawProposal.id})`);
               
-              if (factor.factor_value > 0) {
-                // For positive factors
-                pros.push(explanation);
-              } else if (factor.factor_value < 0) {
-                // For negative factors
-                cons.push(explanation);
+              // Ensure loading state is maintained during API calls
+              setLoading(true);
+              setLoadingLive(true);
+              
+              aiDecision = await generateAIDecision(rawProposal, true, userId);
+              
+              // More comprehensive validation that all critical fields are present
+              if (aiDecision && 
+                  aiDecision.decision && 
+                  aiDecision.confidence && 
+                  aiDecision.persona_match && 
+                  aiDecision.reasoning &&
+                  aiDecision.proposal_summary &&
+                  aiDecision.factors && 
+                  aiDecision.factors.length >= 2) {
+                
+                console.log(`[ProposalFeed] Successfully generated AI decision for proposal "${rawProposal.title}": ${aiDecision.decision} with ${aiDecision.confidence}% confidence`);
+                generationSuccessful = true;
+                break;
+              } else {
+                // Log detailed information about missing fields
+                const missingFields = [];
+                if (!aiDecision.decision) missingFields.push('decision');
+                if (!aiDecision.confidence) missingFields.push('confidence');
+                if (!aiDecision.persona_match) missingFields.push('persona_match');
+                if (!aiDecision.reasoning) missingFields.push('reasoning');
+                if (!aiDecision.proposal_summary) missingFields.push('proposal_summary');
+                if (!aiDecision.factors || aiDecision.factors.length < 2) missingFields.push('factors');
+                
+                console.warn(`[ProposalFeed] AI decision for proposal "${rawProposal.title}" is missing fields: ${missingFields.join(', ')}, retrying...`);
               }
-            });
-          }
-          
-          // If we don't have enough pros/cons, generate some based on the proposal content
-          if (pros.length < 2) {
-            const defaultPros = [
-              `Potentially improves governance in ${rawProposal.dao_info?.name || 'the DAO'}`,
-              `Addresses community needs through new mechanisms`,
-              `Could increase participation and engagement`
-            ];
-            
-            while (pros.length < 2) {
-              const randomIndex = Math.floor(Math.random() * defaultPros.length);
-              if (!pros.includes(defaultPros[randomIndex])) {
-                pros.push(defaultPros[randomIndex]);
+            } catch (error) {
+              console.error(`[ProposalFeed] Error in attempt ${attempt}/3 for proposal "${rawProposal.title}":`, error);
+              
+              // Small delay before retry
+              if (attempt < 3) {
+                const retryDelay = 1000 * attempt; // Longer delays for subsequent retries
+                console.log(`[ProposalFeed] Waiting ${retryDelay}ms before retry ${attempt + 1}...`);
+                await new Promise(resolve => setTimeout(resolve, retryDelay));
               }
             }
           }
           
-          if (cons.length < 1) {
-            const defaultCons = [
-              `May require additional resources to implement fully`,
-              `Could face technical challenges during deployment`,
-              `Timeline might be optimistic`
-            ];
+          // If all attempts failed, create a robust fallback
+          if (!generationSuccessful) {
+            console.warn(`All attempts to generate AI decision failed for proposal ${rawProposal.id}, using enhanced fallback`);
             
-            cons.push(defaultCons[Math.floor(Math.random() * defaultCons.length)]);
+            // Create a deterministic but more sophisticated fallback decision
+            aiDecision = createUniqueFallback(rawProposal);
           }
+          
+          // Extract pros and cons from factors
+          const pros = aiDecision.factors
+            ?.filter(factor => factor.factor_value > 0)
+            .map(factor => factor.explanation) || [];
+            
+          const cons = aiDecision.factors
+            ?.filter(factor => factor.factor_value < 0)
+            .map(factor => factor.explanation) || [];
+            
+          console.log("[ProposalFeed] Extracted pros and cons from factors:", {
+            factorsAvailable: !!aiDecision.factors && Array.isArray(aiDecision.factors),
+            factorsCount: aiDecision.factors?.length || 0,
+            prosCount: pros.length,
+            consCount: cons.length
+          });
           
           // Calculate time left
           const now = new Date();
@@ -446,15 +760,15 @@ export default function ProposalFeed() {
           
           let timeLeft = "Ended";
           if (timeLeftMs > 0) {
-            timeLeft = diffDays > 0 ? `${diffDays}d ${diffHours}h left` : `${diffHours}h left`;
+            timeLeft = diffDays > 0 ? `${diffDays}d ${diffHours}h remaining` : `${diffHours}h remaining`;
           }
           
           // Format the proposal
-          const formattedProposal: FormattedProposal = {
+          const formattedProposal = {
             id: rawProposal.id,
             title: rawProposal.title,
             description: truncatedBody,
-            summary: aiDecision.proposal_summary || extractSummary(truncatedBody), // Use AI-generated summary if available
+            summary: aiDecision.proposal_summary || extractSummary(truncatedBody),
             status: rawProposal.state.charAt(0).toUpperCase() + rawProposal.state.slice(1),
             url: `https://snapshot.org/#/${rawProposal.space.id}/proposal/${rawProposal.id}`,
             votingDeadline: new Date(rawProposal.end * 1000).toISOString(),
@@ -464,7 +778,12 @@ export default function ProposalFeed() {
               name: rawProposal.dao_info?.name || rawProposal.space.name,
               icon: rawProposal.dao_info?.icon || rawProposal.space.name.charAt(0)
             },
-            votes,
+            votes: {
+              yes: Math.floor(2000 + (Number(rawProposal.id) % 100) * 30),
+              no: Math.floor(1000 + (Number(rawProposal.id) % 100) * 20),
+              abstain: Math.floor(200 + (Number(rawProposal.id) % 100) * 5),
+              total: Math.floor(3200 + (Number(rawProposal.id) % 100) * 55)
+            },
             timeLeft,
             impact: aiDecision.factors?.some(f => f.factor_value > 7) ? "High" : 
                   aiDecision.factors?.some(f => f.factor_value > 5) ? "Medium" : "Low",
@@ -499,6 +818,22 @@ export default function ProposalFeed() {
         }
       }
       
+      // Turn off loading indicators when all processing is complete
+      setLoading(false);
+      setLoadingLive(false);
+      
+      if (processedProposals.length === 0) {
+        console.error("Failed to process any proposals");
+        toast({
+          title: "No proposals processed",
+          description: "Could not process any proposals. Using mock data instead.",
+          variant: "destructive",
+          duration: 5000,
+        });
+        return [];
+      }
+      
+      console.log(`Successfully processed ${processedProposals.length} proposals`);
       return processedProposals;
     } catch (error) {
       console.error("Error in processProposalsDirectly:", error);
@@ -645,10 +980,13 @@ export default function ProposalFeed() {
     forceGenerate: boolean,
     userId: string
   ): Promise<AIDecision> => {
+    // Use locally scoped cache to avoid global state issues
+    const localCache = new Map<string, AIDecision>();
+    
     // First check cache
-    if (aiDecisionCache.has(proposal.id) && !forceGenerate) {
+    if (localCache.has(proposal.id) && !forceGenerate) {
       console.log(`Using cached AI decision for proposal: ${proposal.id.substring(0, 8)}`);
-      return aiDecisionCache.get(proposal.id)!;
+      return localCache.get(proposal.id)!;
     }
 
     // Create a compact version of the prompt to use fewer tokens
@@ -662,30 +1000,37 @@ Description: ${proposal.body.substring(0, 1000)}
 USER PERSONA DETAILS:
 ${getPersonaDescription(getUserPersonaPreferences())}
 
-Based on the user's specific persona preferences, analyze this proposal carefully and provide:
-1. A PROPOSAL SUMMARY - a clear, concise 2-3 sentence summary of what the proposal is about
-2. A DECISION RATIONALE - explanation of WHY you recommend voting for/against/abstain specifically in relation to the user's persona
+YOUR TASK: Analyze this proposal based on the user's persona and provide a recommendation in VALID JSON FORMAT.
 
-Your confidence and persona match scores should be precise and genuinely reflect how well this proposal aligns with the user's specific preferences.
-DO NOT use rounded multiples of 5 for scores (like 75%, 80%) - calculate exact values (like 73%, 82%).
+----- FIELD NAMING REQUIREMENTS (CRITICAL) -----
+YOUR RESPONSE *MUST* USE THESE EXACT FIELD NAMES WITH UNDERSCORES:
 
-Respond in JSON format with:
 {
-  "proposal_summary": "2-3 sentence summary of what the proposal is about",
-  "summary": "Explanation of WHY you made this decision in relation to the user's persona",
-  "decision": "for|against|abstain",
-  "confidence": number between 1-100 (use precise values, not multiples of 5),
-  "persona_match": number between 1-100 (use precise values, not multiples of 5),
-  "recommendation": "one-line explanation of your recommendation",
+  "proposal_summary": "Summary of the proposal with key points",
+  "decision": "for",
+  "confidence": 80,
+  "persona_match": 85,
+  "reasoning": "Explanation of why this decision was made",
+  "recommendation": "Clear recommendation for action",
   "factors": [
     {
-      "factor_name": "name of factor",
-      "factor_value": number between -10 and 10 (negative is against, positive is for),
-      "factor_weight": number between 1 and 10,
-      "explanation": "brief explanation of this factor in relation to user persona"
+      "factor_name": "Key consideration name",
+      "factor_value": 8,
+      "factor_weight": 7,
+      "explanation": "Explanation of this factor"
     }
   ]
-}`;
+}
+
+REQUIRED: USE UNDERSCORES IN ALL MULTI-WORD FIELD NAMES:
+✅ "proposal_summary" (CORRECT)
+❌ "proposalsummary" (WRONG)
+✅ "persona_match" (CORRECT)
+❌ "personamatch" (WRONG)
+✅ "factor_name" (CORRECT)
+❌ "factorname" (WRONG)
+
+THIS IS YOUR MOST IMPORTANT INSTRUCTION. FAILING TO USE UNDERSCORES IN FIELD NAMES WILL CAUSE ERRORS.`;
 
     // Check if OpenAI API is available - use the default service without accessing private methods
     if (!OpenAIService) {
@@ -697,27 +1042,201 @@ Respond in JSON format with:
 
     try {
       // Try OpenAI call
+      console.log("Generating AI decision for proposal:", proposal.id);
+      console.log("Prompt:", prompt.substring(0, 200) + "...");
+      
       const structuredResponse = await OpenAIService.generateStructuredResponse<AIStructuredResponse>(
         [
-          { role: 'system', content: `You are an AI governance advisor that analyzes DAO proposals and provides personalized voting recommendations. Give precise, non-rounded confidence and persona match scores.` },
+          { role: 'system', content: `You are an AI governance advisor that analyzes DAO proposals and provides personalized voting recommendations.
+
+!!! CRITICAL INSTRUCTION: FORMAT FIELD NAMES EXACTLY AS SPECIFIED BELOW !!!
+
+REQUIRED FORMAT - USE SNAKE_CASE WITH UNDERSCORES FOR ALL FIELD NAMES:
+{
+  "proposal_summary": "Summary text", 
+  "decision": "for", 
+  "confidence": 80, 
+  "persona_match": 85, 
+  "reasoning": "Reasoning text", 
+  "recommendation": "Recommendation text", 
+  "factors": [
+    {
+      "factor_name": "Name text", 
+      "factor_value": 8, 
+      "factor_weight": 7, 
+      "explanation": "Explanation text"
+    }
+  ]
+}
+
+EXAMPLE OF A ❌ WRONG RESPONSE (DO NOT DO THIS):
+{
+  "proposalsummary": "Summary text",
+  "personamatch": 85,
+  "factorname": "Name text",
+  "factorvalue": 8,
+  "factorweight": 7
+}
+
+EXAMPLE OF A ✅ CORRECT RESPONSE (DO EXACTLY THIS):
+{
+  "proposal_summary": "Summary text",
+  "persona_match": 85,
+  "factor_name": "Name text",
+  "factor_value": 8,
+  "factor_weight": 7
+}
+
+ABSOLUTELY REQUIRED:
+1. Every field name with multiple words MUST contain underscores between words
+2. You MUST include ALL these fields with EXACT names as shown:
+   - "proposal_summary" (NOT "proposalsummary")
+   - "persona_match" (NOT "personamatch")
+   - "factor_name" (NOT "factorname")
+   - "factor_value" (NOT "factorvalue")
+   - "factor_weight" (NOT "factorweight")
+
+WARNING: Your response will be rejected if field names are missing underscores!
+
+THE BIGGEST MISTAKE YOU CAN MAKE IS REMOVING UNDERSCORES FROM FIELD NAMES.
+KEEP THE UNDERSCORES IN ALL FIELD NAMES AT ALL COSTS.` },
           { role: 'user', content: prompt }
         ],
         {
-          temperature: 0.7,
-          model: 'gpt-4o-mini',
-          maxTokens: 1000
+          temperature: 0.1, // ALWAYS use this very low temperature for consistent outputs
+          model: 'gpt-4o', // Use better model for more reliable field naming 
+          maxTokens: 2500 // Increased token limit for comprehensive responses
         }
       );
 
-      // Process the response
+      console.log("OpenAI response received:", structuredResponse ? "success" : "empty");
+      // Log the actual structuredResponse content to help diagnose issues
+      console.log("OpenAI structured response details:", JSON.stringify(structuredResponse, null, 2));
+      
+      // PRE-PROCESSING: Normalize field names before validation
+      const normalizedResponse = preProcessResponseFields(structuredResponse);
+      console.log("NORMALIZED RESPONSE:", JSON.stringify(normalizedResponse, null, 2));
+      
+      // NEW DETAILED LOGS - Check each field individually
+      console.log("DETAILED RESPONSE CHECK:");
+      console.log("- decision:", normalizedResponse.decision);
+      console.log("- confidence:", normalizedResponse.confidence);
+      console.log("- persona_match:", normalizedResponse.persona_match);
+      console.log("- reasoning:", normalizedResponse.reasoning?.substring(0, 50) + "...");
+      console.log("- proposal_summary:", normalizedResponse.proposal_summary?.substring(0, 50) + "...");
+      console.log("- recommendation:", normalizedResponse.recommendation?.substring(0, 50) + "...");
+      console.log("- factors:", normalizedResponse.factors ? 
+        `Present (${normalizedResponse.factors.length} items)` : 
+        "Missing or Empty");
+      
+      // Add individual field validations while preserving as much AI content as possible
+      // Only apply targeted fallbacks for specific missing fields
+      let validatedResponse = { ...normalizedResponse };
+      
+      // Validate and set required fields if missing, logging each issue
+      if (!validatedResponse.decision || 
+          !['for', 'against', 'abstain'].includes(validatedResponse.decision.toLowerCase())) {
+        console.warn("[ProposalFeed] AI decision field missing or invalid - applying fallback");
+        validatedResponse.decision = 'for'; // Default to 'for'
+      }
+      
+      if (!validatedResponse.confidence || 
+          typeof validatedResponse.confidence !== 'number' || 
+          validatedResponse.confidence < 1 || 
+          validatedResponse.confidence > 100) {
+        console.warn("[ProposalFeed] AI confidence field missing or invalid - applying fallback");
+        validatedResponse.confidence = 75; // Default confidence value
+      }
+      
+      if (!validatedResponse.persona_match || 
+          typeof validatedResponse.persona_match !== 'number' || 
+          validatedResponse.persona_match < 1 || 
+          validatedResponse.persona_match > 100) {
+        console.warn("[ProposalFeed] AI persona_match field missing or invalid - applying fallback");
+        validatedResponse.persona_match = 65; // Default persona match value
+      }
+      
+      if (!validatedResponse.reasoning || validatedResponse.reasoning.trim() === '') {
+        console.warn("[ProposalFeed] AI reasoning field missing - applying fallback");
+        validatedResponse.reasoning = generateFallbackRationale(proposal);
+      }
+      
+      if (!validatedResponse.proposal_summary || validatedResponse.proposal_summary.trim() === '') {
+        console.warn("[ProposalFeed] AI proposal_summary field missing - applying fallback");
+        validatedResponse.proposal_summary = generateFallbackSummary(proposal);
+      }
+      
+      // Ensure recommendation field
+      if (!validatedResponse.recommendation || validatedResponse.recommendation.trim() === '') {
+        console.warn("[ProposalFeed] AI recommendation field missing - applying fallback");
+        validatedResponse.recommendation = `Consider voting ${validatedResponse.decision} based on the ${validatedResponse.confidence}% confidence analysis.`;
+      }
+      
+      // Ensure factors array is valid and has enough content
+      if (!validatedResponse.factors || 
+          !Array.isArray(validatedResponse.factors) || 
+          validatedResponse.factors.length < 2) {
+        console.warn("[ProposalFeed] AI factors array missing or insufficient - applying fallback factors");
+        
+        // Create complete fallback factors
+        validatedResponse.factors = [
+          {
+            factor_name: "Proposal Impact",
+            factor_value: 7,
+            factor_weight: 8,
+            explanation: `Potentially beneficial for ${proposal.dao_info?.name || proposal.space?.name || 'the DAO'}`
+          },
+          {
+            factor_name: "Implementation Complexity",
+            factor_value: -3,
+            factor_weight: 6,
+            explanation: "May require significant development resources"
+          },
+          {
+            factor_name: "Community Alignment",
+            factor_value: 6,
+            factor_weight: 7,
+            explanation: "Generally aligns with community goals and priorities"
+          }
+        ];
+      } else {
+        // Check if factors have both positive and negative values
+        const hasPositive = validatedResponse.factors.some(f => f.factor_value > 0);
+        const hasNegative = validatedResponse.factors.some(f => f.factor_value < 0);
+        
+        if (!hasPositive || !hasNegative) {
+          console.warn("[ProposalFeed] AI factors missing balance - adding missing positive/negative factor");
+          
+          // Add a missing positive or negative factor as needed
+          if (!hasPositive) {
+            validatedResponse.factors.push({
+              factor_name: "Potential Benefit",
+              factor_value: 6,
+              factor_weight: 7,
+              explanation: `May provide value to the ${proposal.dao_info?.name || proposal.space?.name || 'DAO'} ecosystem`
+            });
+          }
+          
+          if (!hasNegative) {
+            validatedResponse.factors.push({
+              factor_name: "Implementation Consideration",
+              factor_value: -3,
+              factor_weight: 5,
+              explanation: "Implementation may require careful planning and resources"
+            });
+          }
+        }
+      }
+      
+      // Process the response with our validated fields
       const aiDecision: AIDecision = {
-        decision: structuredResponse.decision || 'for',
-        confidence: structuredResponse.confidence || 75,
-        persona_match: structuredResponse.persona_match || 50,
-        reasoning: structuredResponse.summary || generateFallbackRationale(proposal),
-        proposal_summary: structuredResponse.proposal_summary || generateFallbackSummary(proposal),
-        recommendation: structuredResponse.recommendation || `Consider voting for this proposal based on its potential benefits to ${proposal.dao_info?.name || proposal.space?.name || 'this DAO'}.`,
-        factors: structuredResponse.factors?.map((factor, idx) => ({
+        decision: validatedResponse.decision || 'for',
+        confidence: validatedResponse.confidence || 75,
+        persona_match: validatedResponse.persona_match || 50,
+        reasoning: validatedResponse.reasoning || generateFallbackRationale(proposal),
+        proposal_summary: validatedResponse.proposal_summary || generateFallbackSummary(proposal),
+        recommendation: validatedResponse.recommendation || `Consider voting for this proposal based on its potential benefits to ${proposal.dao_info?.name || proposal.space?.name || 'this DAO'}.`,
+        factors: validatedResponse.factors?.map((factor, idx) => ({
           id: `ai-${proposal.id}-${idx}`,
           ai_decision_id: `ai-${proposal.id}`,
           created_at: new Date().toISOString(),
@@ -744,48 +1263,31 @@ Respond in JSON format with:
             factor_weight: 5, 
             explanation: "May require significant development resources"
           }
-        ]
+        ],
+        chain_of_thought: generateChainOfThought(proposal, validatedResponse) 
       };
 
-      // Cache the decision
-      aiDecisionCache.set(proposal.id, aiDecision);
+      // Add improved logging to verify we've successfully processed the AI response
+      console.log(`[ProposalFeed] Successfully processed AI decision for proposal ${proposal.id}:`);
+      console.log(`  - Decision: ${aiDecision.decision}`);
+      console.log(`  - Confidence: ${aiDecision.confidence}%`);
+      console.log(`  - Persona match: ${aiDecision.persona_match}%`);
+      console.log(`  - Factors: ${aiDecision.factors?.length || 0} items`);
+      console.log(`  - Pros: ${aiDecision.factors?.filter(f => f.factor_value > 0).length || 0} items`);
+      console.log(`  - Cons: ${aiDecision.factors?.filter(f => f.factor_value < 0).length || 0} items`);
+
+      // Cache the decision locally
+      localCache.set(proposal.id, aiDecision);
       
       return aiDecision;
     } catch (error) {
       console.error("Error generating AI decision:", error);
       
-      // Create a fallback decision
-      const fallbackDecision: AIDecision = {
-        decision: 'for',
-        confidence: 75,
-        persona_match: 50,
-        reasoning: generateFallbackRationale(proposal),
-        proposal_summary: generateFallbackSummary(proposal),
-        recommendation: `Consider voting for this proposal based on its potential benefits to ${proposal.dao_info?.name || proposal.space?.name || 'this DAO'}.`,
-        factors: [
-          {
-            id: `fallback-1-${proposal.id}`,
-            ai_decision_id: `fallback-${proposal.id}`,
-            created_at: new Date().toISOString(),
-            factor_name: "Governance Improvement",
-            factor_value: 7,
-            factor_weight: 8,
-            explanation: `May improve governance processes in ${proposal.dao_info?.name || 'the DAO'}`
-          },
-          {
-            id: `fallback-2-${proposal.id}`,
-            ai_decision_id: `fallback-${proposal.id}`,
-            created_at: new Date().toISOString(),
-            factor_name: "Implementation Risk",
-            factor_value: -3,
-            factor_weight: 5, 
-            explanation: "May require significant development resources"
-          }
-        ]
-      };
+      // Create a more meaningful fallback decision
+      const fallbackDecision = createUniqueFallback(proposal);
       
-      // Cache the fallback decision
-      aiDecisionCache.set(proposal.id, fallbackDecision);
+      // Cache the fallback decision locally
+      localCache.set(proposal.id, fallbackDecision);
       
       return fallbackDecision;
     }
@@ -869,13 +1371,74 @@ Respond in JSON format with:
     // Add type-specific cons
     if (proposalType === "funding allocation") {
       uniqueCons.push("Funding allocation may not be optimal for current priorities");
+      uniqueCons.push("May require reallocating resources from other initiatives");
+      uniqueCons.push(`Implementation timeline might not align with ${daoName}'s current roadmap`);
     } else if (proposalType === "protocol upgrade") {
       uniqueCons.push("Implementation could face technical obstacles");
+      uniqueCons.push("May require significant development resources");
+      uniqueCons.push("Could introduce new points of failure if not properly tested");
     } else if (proposalType === "chain selection or integration") {
       uniqueCons.push("Integration with new chains adds complexity");
+      uniqueCons.push("May encounter interoperability challenges");
+      uniqueCons.push("Could fragment the user base across multiple chains");
+    } else if (proposalType === "treasury management") {
+      uniqueCons.push("Proposed strategy may expose treasury to new risk types");
+      uniqueCons.push("Market conditions could change, impacting expected returns");
+      uniqueCons.push("May reduce available liquidity for short-term operations");
     } else {
-      uniqueCons.push("May require significant development resources");
+      uniqueCons.push("May require changes to established governance processes");
+      uniqueCons.push("Implementation details need further clarification");
+      uniqueCons.push("Could potentially increase governance overhead");
     }
+    
+    // Create more specific factors for the unique proposal type
+    let uniqueProFactor = {
+      id: `unique-1-${proposal.id}`,
+      ai_decision_id: `unique-${proposal.id}`,
+      created_at: new Date().toISOString(),
+      factor_name: proposalType === "funding allocation" ? "Resource Allocation" : 
+                  proposalType === "protocol upgrade" ? "Technical Improvement" :
+                  proposalType === "chain selection" ? "Ecosystem Expansion" :
+                  proposalType === "treasury management" ? "Financial Impact" : "Governance Enhancement",
+      factor_value: 6 + Math.floor(Math.random() * 3),
+      factor_weight: 7,
+      explanation: uniquePros[0] || `Potentially beneficial for ${daoName}`
+    };
+    
+    let uniqueConFactor = {
+      id: `unique-2-${proposal.id}`,
+      ai_decision_id: `unique-${proposal.id}`,
+      created_at: new Date().toISOString(),
+      factor_name: proposalType === "funding allocation" ? "Budget Constraints" : 
+                 proposalType === "protocol upgrade" ? "Implementation Complexity" :
+                 proposalType === "chain selection" ? "Operational Overhead" :
+                 proposalType === "treasury management" ? "Risk Exposure" : "Process Complexity",
+      factor_value: -3 - Math.floor(Math.random() * 2),
+      factor_weight: 5,
+      explanation: uniqueCons[0] || "May require significant development resources"
+    };
+    
+    // Add one additional factor specific to proposal type
+    let additionalFactor = {
+      id: `unique-3-${proposal.id}`,
+      ai_decision_id: `unique-${proposal.id}`,
+      created_at: new Date().toISOString(),
+      factor_name: "Community Impact",
+      factor_value: 4 + Math.floor(Math.random() * 3),
+      factor_weight: 6,
+      explanation: proposalType === "funding allocation" ? `Could foster ecosystem growth in ${daoName}` :
+                 proposalType === "protocol upgrade" ? "May improve user experience and adoption" :
+                 proposalType === "chain selection" ? "Could bring in new community members" :
+                 proposalType === "treasury management" ? "Potential for sustainable long-term funding" :
+                 "Might increase community engagement and participation"
+    };
+    
+    // Create unique AI decision factors
+    const uniqueFactors: AIDecisionFactor[] = [
+      uniqueProFactor,
+      uniqueConFactor,
+      additionalFactor
+    ];
     
     // Get user persona
     const personaPreferences = getUserPersonaPreferences();
@@ -980,28 +1543,6 @@ Respond in JSON format with:
       personaDescription += " has general governance preferences";
     }
     
-    // Create unique AI decision factors
-    const uniqueFactors: AIDecisionFactor[] = [
-      {
-        id: `unique-1-${proposal.id}`,
-        ai_decision_id: `unique-${proposal.id}`,
-        created_at: new Date().toISOString(),
-        factor_name: uniquePros[0] || "Potential Benefit",
-        factor_value: 6 + Math.floor(Math.random() * 3),
-        factor_weight: 7,
-        explanation: uniquePros[0] || `Potentially beneficial for ${daoName}`
-      },
-      {
-        id: `unique-2-${proposal.id}`,
-        ai_decision_id: `unique-${proposal.id}`,
-        created_at: new Date().toISOString(),
-        factor_name: uniqueCons[0] || "Implementation Risk",
-        factor_value: -3 - Math.floor(Math.random() * 2),
-        factor_weight: 5,
-        explanation: uniqueCons[0] || "May require significant development resources"
-      }
-    ];
-    
     // Create a chain of thought
     const uniqueChainOfThought = `# AI Analysis of "${title}" for Your Persona
 
@@ -1048,7 +1589,29 @@ Respond in JSON format with:
   // Add a function to get user persona preferences
   const getUserPersonaPreferences = () => {
     try {
-      // Try to get persona preferences from localStorage
+      // If we have an active persona in state already, use that
+      if (activePersonaFromApi) {
+        console.log("[getUserPersonaPreferences] Using active persona from state:", activePersonaFromApi);
+        return {
+          riskTolerance: mapSliderToValue(activePersonaFromApi.risk || 50, 'riskTolerance'),
+          priorityFocus: mapSliderToValue(activePersonaFromApi.esg || 50, 'priorityFocus'),
+          timeHorizon: mapSliderToValue(activePersonaFromApi.horizon || 50, 'timeHorizon'),
+          governance: mapSliderToValue(activePersonaFromApi.frequency || 50, 'governance'),
+          communityImpact: mapSliderToValue(activePersonaFromApi.treasury || 50, 'communityImpact')
+        };
+      }
+      
+      // Use a fixed persona preferences object (outside cache)
+      const cachedPersonaValue = localStorage.getItem('cached_persona_preferences');
+      if (cachedPersonaValue) {
+        try {
+          return JSON.parse(cachedPersonaValue);
+        } catch (e) {
+          console.error('Failed to parse cached persona', e);
+        }
+      }
+      
+      // Try to get persona preferences from localStorage as fallback
       const storedPersona = localStorage.getItem('user_persona');
       if (storedPersona) {
         return JSON.parse(storedPersona);
@@ -1068,6 +1631,50 @@ Respond in JSON format with:
     }
   };
   
+  // Helper function to map slider values (0-100) to named persona values
+  const mapSliderToValue = (sliderValue: number, category: string) => {
+    // Define mapping ranges for each category
+    const ranges = {
+      riskTolerance: [
+        { max: 33, value: 'conservative' },
+        { max: 66, value: 'moderate' },
+        { max: 100, value: 'aggressive' }
+      ],
+      priorityFocus: [
+        { max: 33, value: 'security' },
+        { max: 66, value: 'balanced' },
+        { max: 100, value: 'innovation' }
+      ],
+      timeHorizon: [
+        { max: 33, value: 'short' },
+        { max: 66, value: 'medium' },
+        { max: 100, value: 'long' }
+      ],
+      governance: [
+        { max: 33, value: 'efficiency' },
+        { max: 66, value: 'balanced' },
+        { max: 100, value: 'decentralization' }
+      ],
+      communityImpact: [
+        { max: 33, value: 'low' },
+        { max: 66, value: 'medium' },
+        { max: 100, value: 'high' }
+      ]
+    };
+    
+    // Find the appropriate range
+    const categoryRanges = ranges[category];
+    if (!categoryRanges) return 'moderate'; // Default fallback
+    
+    for (const range of categoryRanges) {
+      if (sliderValue <= range.max) {
+        return range.value;
+      }
+    }
+    
+    return categoryRanges[categoryRanges.length - 1].value; // Use highest range if no match
+  };
+
   // Add a function to generate a persona description
   const getPersonaDescription = (personaPreferences: any) => {
     if (!personaPreferences) return "Your current persona preferences are not set.";
@@ -1103,63 +1710,186 @@ Respond in JSON format with:
     return `Your persona ${descriptions.riskTolerance[personaPreferences.riskTolerance]}, ${descriptions.priorityFocus[personaPreferences.priorityFocus]}, and ${descriptions.timeHorizon[personaPreferences.timeHorizon]}. You ${descriptions.governance[personaPreferences.governance]} and ${descriptions.communityImpact[personaPreferences.communityImpact]}.`;
   };
 
+  // Function to ensure proper field names - guaranteed preprocessing
+  const preProcessResponseFields = (response: any): AIStructuredResponse => {
+    // Create a new normalized object with proper field names
+    const normalized: any = {
+      // Copy simple fields directly or use alternate names
+      decision: response.decision,
+      confidence: response.confidence,
+      reasoning: response.reasoning,
+      recommendation: response.recommendation,
+      
+      // Handle multi-word fields that commonly lose underscores
+      proposal_summary: response.proposal_summary || response.proposalsummary || response.proposalSummary || response.summary,
+      persona_match: response.persona_match || response.personamatch || response.personaMatch || response.match,
+    };
+    
+    // Special handling for factors array
+    if (Array.isArray(response.factors)) {
+      normalized.factors = response.factors.map((factor: any, index: number) => {
+        // Create properly normalized factor object
+        return {
+          factor_name: factor.factor_name || factor.factorname || factor.factorName || factor.name || `Factor ${index + 1}`,
+          factor_value: factor.factor_value || factor.factorvalue || factor.factorValue || factor.value || 
+                      (index % 2 === 0 ? 6 : -3), // Default alternating values
+          factor_weight: factor.factor_weight || factor.factorweight || factor.factorWeight || factor.weight || 
+                       Math.abs((factor.factor_value || 5)) > 5 ? 8 : 5, // Default weights
+          explanation: factor.explanation || factor.desc || factor.description || 
+                     `${factor.factor_name || factor.factorname || factor.name || `Factor ${index + 1}`} details`
+        };
+      });
+    } else {
+      // If factors aren't in expected format, create a default set
+      console.warn("[ProposalFeed] factors field missing or not an array - creating default factors");
+      normalized.factors = [
+        {
+          factor_name: "Primary Impact",
+          factor_value: 7,
+          factor_weight: 8,
+          explanation: "Expected primary benefit of this proposal"
+        },
+        {
+          factor_name: "Implementation Consideration",
+          factor_value: -3,
+          factor_weight: 5,
+          explanation: "Potential challenges during implementation"
+        }
+      ];
+    }
+    
+    // If critical fields are still missing, set reasonable defaults
+    if (normalized.decision === undefined) {
+      normalized.decision = "for";
+    }
+    
+    if (normalized.confidence === undefined || 
+        typeof normalized.confidence !== 'number' || 
+        normalized.confidence < 0 || 
+        normalized.confidence > 100) {
+      normalized.confidence = 75;
+    }
+    
+    if (normalized.persona_match === undefined || 
+        typeof normalized.persona_match !== 'number' || 
+        normalized.persona_match < 0 || 
+        normalized.persona_match > 100) {
+      normalized.persona_match = 65;
+    }
+    
+    // Ensure all other fields have at least default values
+    normalized.reasoning = normalized.reasoning || "This proposal appears well-aligned with governance objectives";
+    normalized.recommendation = normalized.recommendation || `Consider voting ${normalized.decision} on this proposal`;
+    
+    return normalized as AIStructuredResponse;
+  };
+
+  // Function to handle clicking the "Load Live Data" button
+  const handleLoadLiveDataClick = () => {
+    // Check if user is authenticated before loading live data
+    if (checkAuthAccess("load live data")) {
+      loadLiveData();
+    }
+    // The modal will automatically open via checkAuthAccess if needed
+  };
+
   // Render the proposal feed with real data from Snapshot and AI decisions
   return (
-    <div className="flex flex-col gap-6 pb-6">
-      <div className="flex items-center justify-end gap-2 text-sm">
-        <Badge className={`${dataSource === 'mock' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-green-500/20 text-green-400'}`}>
-          {dataSource === 'mock' ? 'Mock Data' : 'Live Data'}
+    <div className="w-full">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="text-indigo hover:text-phosphor hover:border-indigo/50"
+            onClick={handleLoadLiveDataClick}
+            disabled={loading || loadingLive}
+          >
+            {loadingLive ? (
+              <>
+                <div className="loading-dots mr-2">
+                  <div className="loading-dots--dot"></div>
+                  <div className="loading-dots--dot"></div>
+                  <div className="loading-dots--dot"></div>
+                </div>
+                Loading Live Data...
+              </>
+            ) : (
+              'Load Live Data'
+            )}
+          </Button>
+
+          <Button
+            variant="ghost"
+            className="text-silver hover:text-phosphor"
+            onClick={() => setIsExplainerOpen(true)}
+          >
+            What's this?
+          </Button>
+        </div>
+        <Badge variant="outline" className="bg-charcoal/60 border-silver/10 text-silver">
+          {dataSource === 'real' ? 'Live Data' : 'Sample Data'}
         </Badge>
-        
-        {dataSource === 'mock' ? (
-          <Button 
-            className="bg-indigo hover:bg-indigo/90 text-phosphor text-xs"
-            size="sm"
-            disabled={loading}
-            onClick={loadLiveData}
-          >
-            {loading ? 'Loading...' : 'Load Live Data'}
-          </Button>
-        ) : (
-          <Button 
-            className="bg-indigo hover:bg-indigo/90 text-phosphor text-xs"
-            size="sm"
-            onClick={() => {
-              setLoadedProposals(mockProposals);
-              setDataSource('mock');
-            }}
-          >
-            Show Mock Data
-          </Button>
-        )}
       </div>
-      
-      <div className="grid grid-cols-1 gap-4">
+
+      {/* Conditionally render mock or live proposals here */}
+      <AuthPromptWrapper className="grid grid-cols-1 gap-6">
         {loading ? (
           // Loading skeletons
-          Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="bg-zinc-800/50 p-4 rounded-xl border border-zinc-700/50">
-              <div className="flex items-center gap-2 mb-2">
-                <Skeleton className="w-8 h-8 rounded-full bg-zinc-700/50" />
-                <Skeleton className="w-48 h-5 bg-zinc-700/50" />
-              </div>
-              <Skeleton className="w-full h-4 bg-zinc-700/50 mb-2" />
-              <Skeleton className="w-2/3 h-4 bg-zinc-700/50 mb-4" />
-              <div className="flex justify-between items-center">
-                <Skeleton className="w-20 h-4 bg-zinc-700/50" />
-                <Skeleton className="w-24 h-8 bg-zinc-700/50 rounded-md" />
+          Array(3).fill(0).map((_, i) => (
+            <div key={`skeleton-${i}`} className="bg-charcoal/80 p-4 rounded-lg border border-silver/10 shadow-glow-sm">
+              <div className="animate-pulse flex flex-col space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="h-6 bg-silver/10 rounded w-3/4"></div>
+                  <div className="h-6 bg-indigo/20 rounded w-24"></div>
+                </div>
+                <div className="h-4 bg-silver/10 rounded w-2/3"></div>
+                <div className="h-4 bg-silver/10 rounded w-1/2"></div>
+                <div className="h-10 bg-silver/10 rounded"></div>
               </div>
             </div>
           ))
         ) : (
-          loadedProposals.map(proposal => (
+          proposals.map((proposal) => (
             <AIEnhancedProposalCard key={proposal.id} proposal={proposal} />
           ))
         )}
-      </div>
+      </AuthPromptWrapper>
+      
+      {/* Dialog that explains what the "Load Live Data" button does */}
+      <Dialog open={isExplainerOpen} onOpenChange={setIsExplainerOpen}>
+        <DialogContent className="sm:max-w-[425px] bg-black/30 backdrop-blur-md border-silver/10 shadow-glow-sm">
+          <div className="absolute inset-0 -z-10">
+            <div className="absolute top-0 left-[-10%] w-3/4 h-1/3 rounded-full bg-indigo/5 blur-[120px]" />
+            <div className="absolute bottom-0 right-[-5%] w-1/2 h-1/3 rounded-full bg-cyan/5 blur-[100px]" />
+          </div>
+          
+          <DialogHeader>
+            <DialogTitle className="text-phosphor">About Live Data Loading</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-silver mb-4">
+              The "Load Live Data" button fetches real-time governance proposals from DAOs on Snapshot. 
+              Our AI will analyze these proposals based on your persona preferences.
+            </p>
+            <p className="text-silver mb-4">
+              This feature requires wallet connection and authentication to access your personal preferences.
+            </p>
+            <p className="text-indigo">
+              Note: We limit the number of proposals to minimize API usage during development.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Connect Wallet Modal */}
+      <ConnectWalletModal 
+        isOpen={isModalOpen} 
+        onClose={closeAuthModal} 
+        requiredFeature={requiredFeature}
+      />
     </div>
   );
-};
+}
 
 // Wrapped card component with AI decision capabilities
 const AIEnhancedProposalCard = ({ proposal }: { proposal: FormattedProposal }) => {
@@ -1266,7 +1996,10 @@ const ProposalCard = ({ proposal }: { proposal: FormattedProposal }) => {
         
         <Accordion type="single" collapsible className="relative z-10 mb-4">
           <AccordionItem value="summary" className="border-silver/10">
-            <AccordionTrigger className="text-sm text-cyan hover:no-underline py-2">
+            <AccordionTrigger 
+              className="text-sm text-cyan hover:no-underline py-2"
+              onClick={(e) => e.stopPropagation()} // Stop the click from reaching the CardSpotlight
+            >
               Proposal Summary
             </AccordionTrigger>
             <AccordionContent className="text-sm text-silver">
@@ -1274,7 +2007,10 @@ const ProposalCard = ({ proposal }: { proposal: FormattedProposal }) => {
             </AccordionContent>
           </AccordionItem>
           <AccordionItem value="ai-summary" className="border-silver/10">
-            <AccordionTrigger className="text-sm text-cyan hover:no-underline py-2">
+            <AccordionTrigger 
+              className="text-sm text-cyan hover:no-underline py-2"
+              onClick={(e) => e.stopPropagation()} // Stop the click from reaching the CardSpotlight
+            >
               AI Summary
             </AccordionTrigger>
             <AccordionContent className="text-sm text-silver">
@@ -1332,25 +2068,25 @@ interface ProposalModalProps {
   onCastVote?: (choice: string) => Promise<void>;
 }
 
+// Create an enhanced modal that is wrapped with AI decision provider
 const AIEnhancedProposalModal = ({ proposal, isOpen, onClose }: ProposalModalProps) => {
   if (!proposal.isRealData || !proposal.id) {
     // Use regular modal for mock data
     return <ProposalModal proposal={proposal} isOpen={isOpen} onClose={onClose} />;
   }
-
+  
   // For real data, use AI enhanced modal that has customizations  
   return (
-    <ProposalModal 
-      proposal={proposal} 
-      isOpen={isOpen} 
-      onClose={onClose}
-    />
+    <AIDecisionProvider proposalId={proposal.id}>
+      <ProposalModal proposal={proposal} isOpen={isOpen} onClose={onClose} />
+    </AIDecisionProvider>
   );
 };
 
 // Create the modal component
 const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalProps) => {
-  const [activeTab, setActiveTab] = useState("summary");
+  // State for active tab
+  const [activeTab, setActiveTab] = useState<string>("summary");
   const [voteOverride, setVoteOverride] = useState<string | null>(null);
   const [isVoting, setIsVoting] = useState(false);
   
@@ -1401,8 +2137,12 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
   
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[800px] bg-charcoal border-silver/20 text-phosphor p-0 overflow-hidden">
-        <div className="bg-gradient-to-b from-indigo/10 to-transparent p-6">
+      <DialogContent className="max-w-[800px] max-h-[90vh] bg-charcoal border-silver/20 text-phosphor p-0 flex flex-col overflow-hidden"
+                    aria-describedby="proposal-modal-description">
+        <div className="sr-only" id="proposal-modal-description">
+          Proposal details for {proposal.title}, including summary, voting information, and AI analysis.
+        </div>
+        <div className="bg-gradient-to-b from-indigo/10 to-transparent p-6 flex-shrink-0">
           <DialogHeader>
             <div className="flex items-center gap-2 mb-2">
               <div className="flex items-center gap-2">
@@ -1422,9 +2162,9 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
           </DialogHeader>
         </div>
         
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto flex-grow">
           <Tabs defaultValue="summary" value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="w-full bg-graphite/30 mb-6">
+            <TabsList className="w-full bg-graphite/30 mb-6 sticky top-0 z-10">
               <TabsTrigger value="summary" className="flex-1">Proposal Summary</TabsTrigger>
               <TabsTrigger value="decision" className="flex-1">AI Decision</TabsTrigger>
               <TabsTrigger value="reasoning" className="flex-1">Reasoning</TabsTrigger>
@@ -1506,24 +2246,58 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
                 <div>
                   <h3 className="text-sm font-medium text-silver mb-2">Pros</h3>
                   <ul className="space-y-2">
-                    {proposal.pros.map((pro, index) => (
-                      <li key={index} className="flex items-start gap-2 text-sm">
-                        <span className="text-teal mt-0.5">✓</span>
-                        <span className="text-phosphor">{pro}</span>
-                      </li>
-                    ))}
+                    {(proposal.pros && proposal.pros.length > 0) ? (
+                      proposal.pros.map((pro, index) => (
+                        <li key={index} className="flex items-start gap-2 text-sm">
+                          <span className="text-teal mt-0.5">✓</span>
+                          <span className="text-phosphor">{pro}</span>
+                        </li>
+                      ))
+                    ) : (
+                      // Fallback pros based on proposal type if none available
+                      <>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-teal mt-0.5">✓</span>
+                          <span className="text-phosphor">Addresses a relevant concern for the DAO</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-teal mt-0.5">✓</span>
+                          <span className="text-phosphor">Has potential to improve governance efficiency</span>
+                        </li>
+                        {proposal.isBaseEcosystem && (
+                          <li className="flex items-start gap-2 text-sm">
+                            <span className="text-teal mt-0.5">✓</span>
+                            <span className="text-phosphor">Aligned with protocol ecosystem growth</span>
+                          </li>
+                        )}
+                      </>
+                    )}
                   </ul>
                 </div>
                 
                 <div>
                   <h3 className="text-sm font-medium text-silver mb-2">Cons</h3>
                   <ul className="space-y-2">
-                    {proposal.cons.map((con, index) => (
-                      <li key={index} className="flex items-start gap-2 text-sm">
-                        <span className="text-gold mt-0.5">✕</span>
-                        <span className="text-phosphor">{con}</span>
-                      </li>
-                    ))}
+                    {(proposal.cons && proposal.cons.length > 0) ? (
+                      proposal.cons.map((con, index) => (
+                        <li key={index} className="flex items-start gap-2 text-sm">
+                          <span className="text-gold mt-0.5">✕</span>
+                          <span className="text-phosphor">{con}</span>
+                        </li>
+                      ))
+                    ) : (
+                      // Fallback cons if none available
+                      <>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-gold mt-0.5">✕</span>
+                          <span className="text-phosphor">Implementation details need further clarification</span>
+                        </li>
+                        <li className="flex items-start gap-2 text-sm">
+                          <span className="text-gold mt-0.5">✕</span>
+                          <span className="text-phosphor">May require significant resources to execute properly</span>
+                        </li>
+                      </>
+                    )}
                   </ul>
                 </div>
               </div>
@@ -1572,7 +2346,7 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
             <TabsContent value="reasoning" className="space-y-6">
               <div>
                 <h3 className="text-sm font-medium text-silver mb-2">Chain of Thought</h3>
-                <div className="bg-graphite/30 rounded-lg p-4 text-sm text-phosphor font-mono whitespace-pre-wrap max-h-[250px] overflow-y-auto">
+                <div className="bg-graphite/30 rounded-lg p-4 text-sm text-phosphor font-mono whitespace-pre-wrap max-h-[300px] overflow-y-auto">
                   {proposal.ai_decision?.chain_of_thought 
                    ? proposal.ai_decision.chain_of_thought
                    : `# AI Analysis of "${proposal.title}"
@@ -1591,7 +2365,7 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
               
               <div>
                 <h3 className="text-sm font-medium text-silver mb-2">JSON View</h3>
-                <div className="bg-graphite/30 rounded-lg p-4 text-sm text-cyan font-mono whitespace-pre-wrap max-h-[250px] overflow-y-auto">
+                <div className="bg-graphite/30 rounded-lg p-4 text-sm text-cyan font-mono whitespace-pre-wrap max-h-[300px] overflow-y-auto">
                 {proposal.ai_decision?.json_output 
                  ? proposal.ai_decision.json_output
                  : `{
@@ -1621,7 +2395,7 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
           </Tabs>
         </div>
         
-        <DialogFooter className="p-6 border-t border-silver/10">
+        <DialogFooter className="p-6 border-t border-silver/10 flex-shrink-0">
           <div className="w-full flex flex-col sm:flex-row justify-between gap-4">
             <div className="flex items-center gap-2">
               <span className="text-sm text-silver">Override Vote:</span>
@@ -1668,5 +2442,32 @@ const ProposalModal = ({ proposal, isOpen, onClose, onCastVote }: ProposalModalP
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+};
+
+const AuthPromptWrapper = ({ children, className }: { children: React.ReactNode, className?: string }) => {
+  const { isAuthenticated } = useAuth();
+  const { openAuthModal } = useAuthModal();
+  
+  return (
+    <div className={className}>
+      {children}
+      
+      {!isAuthenticated && (
+        <div className="mt-4 rounded-lg border border-indigo/20 bg-indigo/5 p-3 text-center">
+          <p className="text-sm text-phosphor mb-2">
+            Connect your wallet to see personalized AI decisions
+          </p>
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="border-indigo/30 text-indigo hover:bg-indigo/10"
+            onClick={() => openAuthModal("personalized AI recommendations")}
+          >
+            Connect Wallet
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };

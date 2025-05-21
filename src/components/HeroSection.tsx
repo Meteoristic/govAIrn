@@ -8,6 +8,7 @@ import { CardSpotlight } from '@/components/ui/card-spotlight';
 import { CanvasRevealEffect } from '@/components/ui/canvas-reveal-effect';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
+
 const transitionVariants = {
   item: {
     hidden: {
@@ -27,8 +28,10 @@ const transitionVariants = {
     }
   }
 };
+
 const HeroSection = () => {
   const [showVideo, setShowVideo] = useState(false);
+  
   return <section className="relative min-h-screen pt-32 pb-20 px-6 sm:px-12 md:px-16 lg:px-24 overflow-hidden">
       {/* Background effects */}
       <div className="absolute inset-0 w-full h-full -z-10">
@@ -53,7 +56,7 @@ const HeroSection = () => {
       {/* Grid pattern from CTA section */}
       <div className="absolute inset-0 grid-pattern opacity-30"></div>
       
-      <div aria-hidden className="absolute inset-0 -z-10 size-full [background:radial-gradient(125%_125%_at_50%_100%,transparent_0%,var(--background)_75%)]" />
+      <div aria-hidden className="absolute inset-0 -z-10 size-full [background:radial-gradient(125%_125%_at_50%_100%,transparent 0%,var(--background)_75%)]" />
       
       {/* Moving dots background */}
       <CanvasRevealEffect containerClassName="opacity-20" dotColor="255, 255, 255" dotCount={70} dotSize={2} colors={[[80, 93, 255],
@@ -80,13 +83,15 @@ const HeroSection = () => {
             </div>
             
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-8 tracking-tight">
-              <span className="text-phosphor">Delegate Smarter.</span> <br />
-              <span className="bg-gradient-to-r from-indigo to-cyan bg-clip-text text-transparent">Let AI Vote With You,</span> <br />
-              <span className="text-phosphor">Not For You.</span>
+              <span className="text-phosphor">Your </span>
+              <span className="bg-gradient-to-r from-indigo to-cyan bg-clip-text text-transparent">Intelligent</span>
+              <span className="text-phosphor"> Web3</span> <br />
+              <span className="bg-gradient-to-r from-indigo to-cyan bg-clip-text text-transparent">Governance</span>
+              <span className="text-phosphor"> Partner</span>
             </h1>
             
             <p className="text-xl text-silver mb-10 leading-relaxed max-w-lg">
-              Summarized proposals. Personalized policy. Gasless votes via AgentKit. AI-enhanced DAO governance that respects your values.
+              Customize your governance AI agent, automatically decode proposals, and cast votes that align with your values—all without gas fees.
             </p>
           </AnimatedGroup>
           
@@ -102,13 +107,13 @@ const HeroSection = () => {
           ...transitionVariants
         }} className="flex flex-wrap gap-4">
             <GradientButton className="flex items-center gap-2 px-8 py-5 text-lg" asChild>
-              <Link to="/dashboard">
-                Launch Agent
+              <Link to="/auth">
+                Connect Wallet
                 <ArrowRight className="h-5 w-5 ml-1" />
               </Link>
             </GradientButton>
             
-            <Button variant="outline" onClick={() => setShowVideo(true)} className="border-silver/30 hover:bg-silver/10 text-lg py-6 px-8 rounded-lg flex items-center gap-2 text-zinc-300">
+            <Button variant="outline" onClick={() => setShowVideo(true)} className="border-silver/30 hover:bg-silver/10 text-lg py-5 px-8 rounded-lg flex items-center gap-2 text-black bg-white/90 hover:bg-white">
               <div className="size-6 rounded-full bg-indigo/80 flex items-center justify-center mr-1">
                 <Play className="h-3 w-3 text-white" />
               </div>

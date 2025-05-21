@@ -5,11 +5,14 @@ import ProposalFeed from "@/components/dashboard/ProposalFeed";
 import PerformanceOverview from "@/components/dashboard/PerformanceOverview";
 import AgentActivity from "@/components/dashboard/AgentActivity";
 import { useAuth } from "@/context/AuthContext";
+import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
+import { useAuthModal } from "@/hooks/useAuthModal";
 
 const Dashboard = () => {
   // Reference to the top of the page
   const topRef = useRef<HTMLDivElement>(null);
   const { user, wallet } = useAuth();
+  const { isModalOpen, requiredFeature, openAuthModal, closeAuthModal } = useAuthModal();
   
   // Scroll to the top when component mounts - using smooth scrolling
   useEffect(() => {
@@ -57,6 +60,13 @@ const Dashboard = () => {
             <AgentActivity />
           </div>
         </div>
+        
+        {/* Connect Wallet Modal */}
+        <ConnectWalletModal 
+          isOpen={isModalOpen} 
+          onClose={closeAuthModal} 
+          requiredFeature={requiredFeature}
+        />
       </div>
     </DashboardLayout>
   );

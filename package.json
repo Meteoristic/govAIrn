@@ -1,8 +1,27 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "govairn",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "AI-Powered Governance for Web3 DAOs",
   "type": "module",
+  "author": "GovAIrn Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/govairn/govairn.git"
+  },
+  "homepage": "https://govairn.io",
+  "bugs": {
+    "url": "https://github.com/govairn/govairn/issues"
+  },
+  "keywords": [
+    "dao",
+    "governance",
+    "ai",
+    "web3",
+    "snapshot",
+    "ethereum"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -12,7 +31,9 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:integration": "node --experimental-json-modules test-proposal-integration.js"
+    "test:integration": "node --experimental-json-modules test-proposal-integration.js",
+    "seed:dao": "node seed-custom-dao.js",
+    "check:functions": "node check-functions.js"
   },
   "dependencies": {
     "@dynamic-labs/ethereum": "^4.15.0",
@@ -98,7 +119,6 @@
     "globals": "^15.9.0",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
-    "lovable-tagger": "^1.1.7",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.11",
     "typescript": "^5.5.3",

@@ -13,8 +13,17 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const { isConnected } = useAccount();
   const navigate = useNavigate();
   const { toast } = useToast();
-
+  
+  // In development mode, skip auth check entirely
+  const isDevelopmentMode = import.meta.env.DEV;
+  
   useEffect(() => {
+    // Skip authentication check in development mode
+    if (isDevelopmentMode) {
+      console.log("Development mode: Skipping authentication check");
+      return;
+    }
+    
     // Only redirect if:
     // 1. We're done loading AND
     // 2. User is not authenticated AND 
@@ -29,8 +38,13 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       });
       navigate('/auth');
     }
-  }, [isAuthenticated, loading, navigate, toast, isConnected]);
+  }, [isAuthenticated, loading, navigate, toast, isConnected, isDevelopmentMode]);
 
+  // Always allow access in development
+  if (isDevelopmentMode) {
+    return <>{children}</>;
+  }
+  
   // Show loading state only briefly while checking authentication
   // If wallet is connected but full auth not complete yet, show content anyway
   // This prevents the perpetual loading state

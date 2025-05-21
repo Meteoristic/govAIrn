@@ -1,94 +1,117 @@
-# Welcome to your Lovable project
+# GovAIrn - AI-Powered Governance for Web3 DAOs
 
-## Project info
+<div align="center">
+  <img src="public/images/govairn-logo.png" alt="GovAIrn Logo" width="120" />
+  <h3>Intelligent Governance for Decentralized Organizations</h3>
+</div>
 
-**URL**: https://lovable.dev/projects/726e74d7-612e-4d99-a244-d65092dfd91f
+## Overview
 
-## How can I edit this code?
+GovAIrn is an intelligent governance platform that helps DAO participants make better decisions through AI-powered analysis of proposals, personalized recommendations, and comprehensive governance health metrics. The platform bridges the gap between governance protocols like Snapshot and individual stakeholders by providing deeper, more accessible insights.
 
-There are several ways of editing your application.
+### Key Features
 
-**Use Lovable**
+- 🤖 **AI Decision Engine**: Analyzes proposals and generates voting recommendations based on your personal governance preferences
+- 📊 **DAO Dashboard**: View active proposals across multiple DAOs with real-time analytics
+- 👤 **Persona Builder**: Create and customize your governance persona to align AI recommendations with your values
+- 📝 **Proposal Analysis**: Get detailed breakdowns of each proposal including pros, cons, and impact assessments
+- 🔄 **Snapshot Integration**: Seamlessly sync with Snapshot spaces and get AI insights on live proposals
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/726e74d7-612e-4d99-a244-d65092dfd91f) and start prompting.
+## Tech Stack
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- **Frontend**: React, TypeScript, Vite
+- **UI Framework**: Tailwind CSS, shadcn/ui components
+- **Web3 Integration**: wagmi, ethers.js, RainbowKit
+- **Data Storage**: Supabase (PostgreSQL)
+- **AI/ML**: OpenAI API integration
+- **Authentication**: Sign-in with Ethereum (SIWE)
+- **Deployment**: Serverless Edge Functions
 
 ## Getting Started
 
+### Prerequisites
+
+- Node.js 18+ and npm
+- Supabase account for backend services
+- OpenAI API key for AI analysis features
+- Environment variables configured (see `.env.example`)
+
+### Installation
+
 1. Clone the repository
-2. Install dependencies
+   ```bash
+   git clone https://github.com/yourusername/govairn.git
+   cd govairn
    ```
+
+2. Install dependencies
+   ```bash
    npm install
    ```
-3. Copy `.env.example` to `.env.local` and fill in the values
-   ```
-   cp .env.example .env.local
-   ```
-4. Set up your Supabase environment
-5. Make sure to add your OpenAI API key to the `.env.local` file:
-   ```
-   VITE_OPENAI_API_KEY=your-openai-api-key
-   ```
-6. Start the development server
-   ```
+
+3. Create a `.env` file in the root directory with your API keys (see `.env.example`)
+
+4. Start the development server
+   ```bash
    npm run dev
    ```
 
-## What technologies are used for this project?
+5. Open your browser and navigate to `http://localhost:8080`
 
-This project is built with:
+## Usage
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Dashboard
 
-## How can I deploy this project?
+The dashboard provides an overview of active governance proposals across supported DAOs. You can:
+- View proposal summaries and AI recommendations
+- Load live data from Snapshot spaces
+- Explore governance health metrics
 
-Simply open [Lovable](https://lovable.dev/projects/726e74d7-612e-4d99-a244-d65092dfd91f) and click on Share -> Publish.
+### Persona Management
 
-## Can I connect a custom domain to my Lovable project?
+Create and manage your governance persona to customize AI recommendations:
+1. Navigate to the Persona page from the sidebar
+2. Adjust sliders to set your governance preferences
+3. Save your persona to influence AI decision-making
 
-Yes, you can!
+### Proposal Analysis
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+For each proposal, GovAIrn provides:
+- Summary and key points
+- AI-generated pros and cons
+- Confidence scores and decision recommendations
+- Detailed reasoning for the AI's recommendation
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# Supabase Configuration
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# OpenAI Configuration
+VITE_OPENAI_API_KEY=your_openai_api_key
+
+# Snapshot API URL
+VITE_SNAPSHOT_API_URL=https://hub.snapshot.org/graphql
+
+# Base URL for Edge Functions
+VITE_EDGE_FUNCTION_URL=your_edge_function_url
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Built with [shadcn/ui](https://ui.shadcn.com/) components
+- Powered by [OpenAI](https://openai.com/) for intelligent proposal analysis
+- Integrated with [Snapshot](https://snapshot.org/) for DAO governance
+- Wallet connection via [RainbowKit](https://www.rainbowkit.com/)

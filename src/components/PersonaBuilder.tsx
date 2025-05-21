@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { SnappySlider } from '@/components/ui/snappy-slider';
 import { motion } from 'framer-motion';
@@ -114,7 +113,7 @@ const PersonaBuilder: React.FC<PersonaBuilderProps> = ({
         
         <div className="bg-charcoal/70 backdrop-blur-sm border border-silver/10 rounded-xl p-6 md:p-8 space-y-8">
           <div className="space-y-6">
-            <h3 className="text-xl font-medium text-phosphor">PersonaSliderGroup</h3>
+            <h3 className="text-xl font-medium text-phosphor">Governance Philosophy</h3>
             
             {sliderConfig.map((slider) => (
               <div key={slider.id} className="space-y-4">
@@ -146,7 +145,7 @@ const PersonaBuilder: React.FC<PersonaBuilderProps> = ({
           </div>
           
           <div className="pt-4">
-            <h3 className="text-xl font-medium text-phosphor mb-4">PersonaSummaryPreview</h3>
+            <h3 className="text-xl font-medium text-phosphor mb-4">Governance Summary</h3>
             <PolicySummary sliders={sliderValues} />
           </div>
           

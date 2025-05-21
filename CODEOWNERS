@@ -1,0 +1,22 @@
+# These owners will be the default owners for everything in the repo.
+# Unless a later match takes precedence, they will be requested for
+# review when someone opens a pull request.
+* @govairn/core-team
+
+# AI and Machine Learning components
+/src/lib/services/ai-decision.service.ts @govairn/ai-team
+/src/lib/services/openai.service.ts @govairn/ai-team
+
+# Blockchain integration
+/src/context/AuthContext.tsx @govairn/blockchain-team
+/src/lib/services/snapshot.service.ts @govairn/blockchain-team
+
+# UI Components
+/src/components/ui/ @govairn/frontend-team
+
+# Core business logic
+/src/lib/services/ @govairn/core-team
+
+# Backend/API integration
+/src/lib/supabase.ts @govairn/backend-team
+/supabase/ @govairn/backend-team 

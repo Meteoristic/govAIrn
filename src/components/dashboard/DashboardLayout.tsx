@@ -11,58 +11,104 @@ import {
   Bell,
   Search,
   Database,
-  MessageSquare
+  MessageSquare,
+  Wallet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
+import { useAuthModal } from "@/hooks/useAuthModal";
+import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
-const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
-  const { wallet, logout } = useAuth();
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const [personaBadgeText, setPersonaBadgeText] = useState("Long-Term / High ESG");
+// NavItem component for sidebar navigation
+const NavItem = ({ icon, label, href, onClick, disabled = false }: { 
+  icon: React.ReactNode; 
+  label: string; 
+  href: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) => {
+  if (disabled) {
+    return (
+      <div
+        className="flex items-center gap-3 px-3 py-2 rounded-lg text-silver/50 cursor-not-allowed"
+        onClick={onClick}
+      >
+        <div className="flex items-center justify-center">{icon}</div>
+        <span>{label}</span>
+      </div>
+    );
+  }
   
-  // Effect to load persona preferences from localStorage
-  useEffect(() => {
-    try {
-      const storedPersona = localStorage.getItem('user_persona');
-      if (storedPersona) {
-        const persona = JSON.parse(storedPersona);
-        
-        // Generate badge text based on persona settings
-        const timeHorizonText = persona.timeHorizon === 'long' ? 'Long-Term' : 
-                                persona.timeHorizon === 'short' ? 'Short-Term' : 'Medium-Term';
-        
-        const esgText = persona.priorityFocus === 'security' ? 'High Security' :
-                       persona.riskTolerance === 'conservative' ? 'Low Risk' :
-                       persona.priorityFocus === 'innovation' ? 'Innovation' : 'High ESG';
-        
-        setPersonaBadgeText(`${timeHorizonText} / ${esgText}`);
-      }
-    } catch (error) {
-      console.error("Error loading persona preferences:", error);
-    }
-  }, []);
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className="flex items-center gap-3 px-3 py-2 rounded-lg text-silver hover:text-phosphor hover:bg-white/5 transition-colors w-full text-left"
+      >
+        <div className="flex items-center justify-center">{icon}</div>
+        <span>{label}</span>
+      </button>
+    );
+  }
   
-  const handleLogout = async () => {
-    await logout();
-    toast({
-      title: "Logged out",
-      description: "You have been successfully logged out",
-    });
-    navigate('/auth');
-  };
+  return (
+    <Link
+      to={href}
+      className="flex items-center gap-3 px-3 py-2 rounded-lg text-silver hover:text-phosphor hover:bg-white/5 transition-colors"
+    >
+      <div className="flex items-center justify-center">{icon}</div>
+      <span>{label}</span>
+    </Link>
+  );
+};
 
-  // Format wallet address for display: 0x1234...5678
-  const formatWalletAddress = (address: string | null) => {
-    if (!address) return "0x000...000";
-    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
+  const navigate = useNavigate();
+  const { user, logout, isAuthenticated } = useAuth();
+  const { toast } = useToast();
+  const { isModalOpen, openAuthModal, closeAuthModal, checkAuthAccess } = useAuthModal();
+  const [personaBadgeText, setPersonaBadgeText] = useState("Inactive Persona");
+  
+  // Set up persona badge (only for authenticated users)
+  useEffect(() => {
+    // Only run if user exists
+    if (user) {
+      // This would be replaced with actual persona state checking
+      setTimeout(() => {
+        const status = Math.random() > 0.5 ? "Active Persona" : "Persona Initialized";
+        setPersonaBadgeText(status);
+      }, 1000);
+    }
+  }, [user]);
+  
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      toast({
+        title: "Logged out successfully",
+        description: "You have been logged out of your account",
+      });
+    } catch (error) {
+      toast({
+        title: "Error logging out",
+        description: "An error occurred while logging out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  // Handle protected navigation
+  const handleProtectedNavigation = (feature: string, path: string) => {
+    if (checkAuthAccess(feature)) {
+      navigate(path);
+    }
   };
 
   return (
@@ -71,10 +117,14 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
       <aside className="hidden md:flex flex-col w-64 bg-black/30 backdrop-blur-md border-r border-silver/10 fixed h-screen z-10">
         <div className="p-6 border-b border-silver/10">
           <Link to="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-full bg-indigo/80 glow-indigo flex items-center justify-center">
-              <span className="font-bold text-xl text-phosphor">g</span>
+            <div className="h-9 w-9 flex items-center justify-center">
+              <img src="/images/govairn-logo.png" alt="govAIrn Logo" className="w-full h-full" />
             </div>
-            <h1 className="text-xl font-bold text-phosphor bg-clip-text bg-gradient-to-r from-phosphor to-phosphor/80 text-transparent">govAIrn</h1>
+            <h1 className="text-xl font-bold">
+              <span className="text-phosphor">gov</span>
+              <span style={{ color: '#505DFF' }}>AI</span>
+              <span className="text-phosphor">rn</span>
+            </h1>
           </Link>
         </div>
 
@@ -85,8 +135,22 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             <h3 className="px-3 text-xs font-medium text-silver/70 uppercase tracking-wider mb-3">Navigation</h3>
             <div className="space-y-2">
               <NavItem icon={<LayoutDashboard size={18} />} label="Home" href="/dashboard" />
-              <NavItem icon={<Database size={18} />} label="DAOs" href="/daos" />
-              <NavItem icon={<Vote size={18} />} label="Proposals" href="/proposals" />
+              
+              {/* Always show navigation items but handle interaction based on auth state */}
+              <NavItem 
+                icon={<Database size={18} />} 
+                label="DAOs" 
+                href="/daos" 
+                onClick={!isAuthenticated ? () => openAuthModal("DAO browsing") : undefined}
+                disabled={!isAuthenticated}
+              />
+              <NavItem 
+                icon={<Vote size={18} />} 
+                label="Proposals" 
+                href="/proposals" 
+                onClick={!isAuthenticated ? () => openAuthModal("proposal browsing") : undefined}
+                disabled={!isAuthenticated}
+              />
             </div>
           </div>
           
@@ -94,10 +158,34 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           <div className="mb-6">
             <h3 className="px-3 text-xs font-medium text-silver/70 uppercase tracking-wider mb-3">Agent</h3>
             <div className="space-y-2">
-              <NavItem icon={<User size={18} />} label="Persona" href="/my-persona" />
-              <NavItem icon={<Brain size={18} />} label="Decision Agent" href="/decision-agent" />
-              <NavItem icon={<MessageSquare size={18} />} label="Chat with Agent" href="/agent/chat" />
-              <NavItem icon={<History size={18} />} label="Voting History" href="/voting-history" />
+              <NavItem 
+                icon={<User size={18} />} 
+                label="Persona" 
+                href="/my-persona" 
+                onClick={!isAuthenticated ? () => openAuthModal("persona management") : undefined}
+                disabled={!isAuthenticated}
+              />
+              <NavItem 
+                icon={<Brain size={18} />} 
+                label="Decision Agent" 
+                href="/decision-agent" 
+                onClick={!isAuthenticated ? () => openAuthModal("decision agent") : undefined}
+                disabled={!isAuthenticated}
+              />
+              <NavItem 
+                icon={<MessageSquare size={18} />} 
+                label="Chat with Agent" 
+                href="/agent/chat" 
+                onClick={!isAuthenticated ? () => openAuthModal("agent chat") : undefined}
+                disabled={!isAuthenticated}
+              />
+              <NavItem 
+                icon={<History size={18} />} 
+                label="Voting History" 
+                href="/voting-history" 
+                onClick={!isAuthenticated ? () => openAuthModal("voting history") : undefined}
+                disabled={!isAuthenticated}
+              />
             </div>
           </div>
           
@@ -105,46 +193,51 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
           <div className="mt-auto mb-6">
             <h3 className="px-3 text-xs font-medium text-silver/70 uppercase tracking-wider mb-3">System</h3>
             <div className="space-y-2">
-              <NavItem icon={<Settings size={18} />} label="Settings" href="/settings" />
+              <NavItem 
+                icon={<Settings size={18} />} 
+                label="Settings" 
+                href="/settings" 
+                onClick={!isAuthenticated ? () => openAuthModal("settings") : undefined}
+                disabled={!isAuthenticated}
+              />
             </div>
           </div>
         </nav>
 
         {/* User account section - always visible at bottom */}
-        <div className="p-4 border-t border-silver/10 sticky bottom-0 bg-black/30 backdrop-blur-md">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-black/30 backdrop-blur-md border border-silver/10 hover:border-silver/20 transition-all">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-silver/20 flex items-center justify-center text-xs">
-                0x
-              </div>
-              <div className="text-sm">
-                <p className="text-phosphor font-medium">{formatWalletAddress(wallet)}</p>
-                <p className="text-silver text-xs">Connected</p>
-              </div>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="text-silver hover:text-phosphor"
+        <div className="p-4 border-t border-silver/10">
+          {isAuthenticated ? (
+            <Button
+              variant="ghost"
+              className="w-full flex items-center justify-start gap-3 text-silver hover:text-phosphor"
               onClick={handleLogout}
             >
-              <LogOut size={16} />
+              <LogOut size={18} />
+              <span>Logout</span>
             </Button>
-          </div>
+          ) : (
+            <Button
+              variant="ghost"
+              className="w-full flex items-center justify-start gap-3 text-silver hover:text-phosphor"
+              onClick={() => openAuthModal()}
+            >
+              <Wallet size={18} />
+              <span>Connect Wallet</span>
+            </Button>
+          )}
         </div>
       </aside>
-
-      {/* Main content */}
+      
       <div className="flex-1 flex flex-col md:ml-64 overflow-hidden">
         {/* Header */}
         <header className="bg-black/30 backdrop-blur-md border-b border-silver/10 p-4 sticky top-0 z-10">
           <div className="flex items-center justify-between">
             <div className="flex md:hidden items-center gap-2">
               <Link to="/" className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-indigo flex items-center justify-center">
-                  <span className="font-bold text-xl text-phosphor">g</span>
+                <div className="h-9 w-9 flex items-center justify-center">
+                  <img src="/images/govairn-logo.png" alt="govAIrn Logo" className="w-full h-full" />
                 </div>
-                <h1 className="text-xl font-bold text-phosphor">govAIrn</h1>
+                <h1 className="text-xl font-bold text-phosphor">gov<span style={{ color: '#505DFF' }}>AI</span>rn</h1>
               </Link>
             </div>
 
@@ -159,15 +252,29 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
             </div>
 
             <div className="flex items-center gap-4">
-              <div className="hidden md:flex items-center gap-2 rounded-full px-3 py-1 bg-indigo/10 border border-indigo/30 backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-cyan animate-pulse-glow"></span>
-                <span className="text-xs font-medium text-cyan">{personaBadgeText}</span>
-              </div>
+              {isAuthenticated && (
+                <div className="hidden md:flex items-center gap-2 rounded-full px-3 py-1 bg-indigo/10 border border-indigo/30 backdrop-blur-md">
+                  <span className="w-2 h-2 rounded-full bg-cyan animate-pulse-glow"></span>
+                  <span className="text-xs font-medium text-cyan">{personaBadgeText}</span>
+                </div>
+              )}
               
-              <Button variant="ghost" size="icon" className="text-silver hover:text-phosphor relative">
-                <Bell size={18} />
-                <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-gold"></span>
-              </Button>
+              {isAuthenticated ? (
+                <Button variant="ghost" size="icon" className="text-silver hover:text-phosphor relative">
+                  <Bell size={18} />
+                  <span className="absolute top-0 right-0 h-2 w-2 rounded-full bg-gold"></span>
+                </Button>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  onClick={() => openAuthModal()}
+                  className="text-indigo border-indigo/30 hover:bg-indigo/10"
+                  size="sm"
+                >
+                  <Wallet size={16} className="mr-2" />
+                  Connect Wallet
+                </Button>
+              )}
 
               <div className="md:hidden">
                 <Button variant="ghost" size="icon" className="text-silver hover:text-phosphor">
@@ -182,33 +289,15 @@ const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
         <main className="flex-1 overflow-y-auto bg-charcoal relative">
           {children}
         </main>
+        
+        {/* Connect Wallet Modal */}
+        <ConnectWalletModal 
+          isOpen={isModalOpen} 
+          onClose={closeAuthModal} 
+          requiredFeature={undefined}
+        />
       </div>
     </div>
-  );
-};
-
-// Helper component for navigation items
-const NavItem: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  href: string;
-  active?: boolean;
-}> = ({ icon, label, href, active }) => {
-  // Determine if this link matches the current location
-  const isActive = window.location.pathname === href;
-
-  return (
-    <Link
-      to={href}
-      className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
-        active || isActive
-          ? "bg-indigo/10 text-indigo border border-indigo/20"
-          : "text-silver hover:bg-black/20 hover:text-phosphor border border-transparent"
-      }`}
-    >
-      {icon}
-      <span className="text-sm font-medium">{label}</span>
-    </Link>
   );
 };
 

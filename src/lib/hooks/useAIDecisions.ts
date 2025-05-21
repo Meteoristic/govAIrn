@@ -23,14 +23,35 @@ export function useAIDecisions(proposalId: string) {
     
     const fetchPersona = async () => {
       try {
-        const activePersona = await PersonaService.getActivePersona(user.id);
+        // Check if we're in development mode
+        const isDevelopmentMode = import.meta.env.DEV;
+        let activePersona;
+        
+        if (isDevelopmentMode) {
+          console.log('[useAIDecisions] Development mode: Using getActivePersonaByWallet instead of getActivePersona');
+          activePersona = await PersonaService.getActivePersonaByWallet(user.id);
+          if (!activePersona) {
+            // Fallback - try any personas for this wallet
+            const personas = await PersonaService.getPersonasByWallet(user.id);
+            if (personas && personas.length > 0) {
+              console.log('[useAIDecisions] No active persona found, using first available persona');
+              activePersona = personas[0];
+            }
+          }
+        } else {
+          // Production - use user_id as is
+          activePersona = await PersonaService.getActivePersona(user.id);
+        }
+        
         if (activePersona) {
+          console.log('[useAIDecisions] Found active persona:', activePersona.id);
           setPersonaId(activePersona.id);
         } else {
+          console.warn('[useAIDecisions] No active persona found for user ID:', user.id);
           setError('No active persona found. Please create a persona first.');
         }
       } catch (err) {
-        console.error('Error fetching active persona:', err);
+        console.error('[useAIDecisions] Error fetching active persona:', err);
         setError('Failed to fetch active persona.');
       }
     };

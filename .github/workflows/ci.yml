@@ -7,35 +7,54 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  build_and_test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x]
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Lint
+        run: npm run lint
+      
+      - name: Build
+        run: npm run build
+        
+      - name: Test
+        run: npm test
+        
+  deploy_preview:
+    needs: build_and_test
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     
     steps:
       - uses: actions/checkout@v3
       
-      - name: Setup Node.js
+      - name: Use Node.js 18.x
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: 18.x
           cache: 'npm'
-          
+      
       - name: Install dependencies
         run: npm ci
       
-      - name: Run linting
-        run: npm run lint || echo "Linting issues detected"
-      
-      - name: Build project
+      - name: Build
         run: npm run build
-        
-      - name: Run tests
-        run: npm test || echo "No tests found or tests failed"
-  
-  # Add deployment job when ready
-  # deploy:
-  #   needs: build-and-test
-  #   if: github.ref == 'refs/heads/main'
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Deploy to production
-  #       run: echo "Add deployment steps here"
+      
+      # This would be replaced with your actual preview deployment step
+      - name: Deploy Preview
+        run: echo "This would deploy a preview environment"

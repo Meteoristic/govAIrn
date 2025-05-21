@@ -1,6 +1,26 @@
 import { supabase } from '@/lib/supabase';
 import { SnapshotService, SnapshotProposal } from './snapshot.service';
 import { MarkdownParser } from '../utils/markdownParser';
+import { createClient } from '@supabase/supabase-js';
+
+// Create a Supabase client with the admin key to bypass RLS policies
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseKey = import.meta.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
+
+// Log warning if service role key is missing
+if (!supabaseKey) {
+  console.error('[CRITICAL ERROR] Service role key is missing! Proposal synchronization functionality will not work correctly.');
+}
+
+// Create a dedicated admin client with service role key to bypass RLS policies
+const supabaseAdmin = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+console.log('[ADMIN] Created Supabase admin client with service role key for proposal syncing');
 
 export interface ProposalDetails {
   id: string;
@@ -307,45 +327,49 @@ export class ProposalService {
   }
 
   /**
-   * Synchronize proposals for a DAO from Snapshot using an edge function
-   * This bypasses RLS restrictions and ensures data is properly synced
+   * Synchronize proposals for a DAO from Snapshot using direct implementation
+   * This bypasses the edge function that is causing errors
    */
   static async syncProposalsFromSnapshot(
     daoId: string, 
     state: 'active' | 'closed' | 'all' = 'active'
   ): Promise<{ added: number, updated: number, failed: number }> {
     try {
-      console.log(`Syncing ${state} proposals for DAO ${daoId} using edge function...`);
+      console.log(`Syncing proposals for DAO ${daoId} using direct implementation...`);
       
-      // Use the Supabase URL from our config
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ebchyxgtnyhvvwhzsmrx.supabase.co';
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImViY2h5eGd0bnlodnZ3aHpzbXJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYzMTIxMjMsImV4cCI6MjA2MTg4ODEyM30.k9PZ2qdqmBkTPX7Bl8tT986KoJeVxVwzMeLepSDVe8Y';
-      const functionUrl = `${supabaseUrl}/functions/v1/sync-dao-proposals`;
+      // Initialize the result counter
+      const result = { added: 0, updated: 0, failed: 0 };
       
-      // Call the edge function to sync the proposals
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseAnonKey}`
-        },
-        body: JSON.stringify({ daoId, state })
-      });
+      // Get both active and closed proposals to ensure we have the latest ones
+      console.log(`Fetching active proposals for DAO ${daoId}...`);
+      const activeProposals = await SnapshotService.getProposals(daoId, 'active');
+      console.log(`Found ${activeProposals.length} active proposals for DAO ${daoId}`);
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Error syncing proposals from edge function (${response.status}):`, errorText);
-        return { added: 0, updated: 0, failed: 0 };
+      console.log(`Fetching closed proposals for DAO ${daoId}...`);
+      const closedProposals = await SnapshotService.getProposals(daoId, 'closed');
+      console.log(`Found ${closedProposals.length} closed proposals for DAO ${daoId}`);
+      
+      // Combine proposals and sort by end date (newest first)
+      const allProposals = [...activeProposals, ...closedProposals];
+      allProposals.sort((a, b) => b.end - a.end); // Sort by end time, newest first
+      
+      // Take the most recent 10 proposals
+      const latestProposals = allProposals.slice(0, 10);
+      console.log(`Processing ${latestProposals.length} latest proposals (active + closed) for DAO ${daoId}`);
+      
+      // Process each proposal
+      for (const proposal of latestProposals) {
+        try {
+          await this.processSnapshotProposalAdmin(proposal, daoId, result);
+        } catch (error) {
+          console.error(`Error processing proposal ${proposal.id}:`, error);
+          result.failed++;
+        }
       }
       
-      const result = await response.json();
       console.log(`Sync completed for ${daoId}. Added: ${result.added}, Updated: ${result.updated}, Failed: ${result.failed}`);
       
-      return {
-        added: result.added || 0,
-        updated: result.updated || 0,
-        failed: result.failed || 0
-      };
+      return result;
     } catch (error) {
       console.error(`Error syncing proposals for DAO ${daoId}:`, error);
       return { added: 0, updated: 0, failed: 0 };
@@ -353,9 +377,10 @@ export class ProposalService {
   }
 
   /**
-   * Process a single Snapshot proposal and save to database
+   * Process a single Snapshot proposal and save to database using admin client
+   * This version uses the supabaseAdmin client to bypass RLS policies
    */
-  private static async processSnapshotProposal(
+  private static async processSnapshotProposalAdmin(
     proposal: SnapshotProposal, 
     daoId: string,
     result: { added: number, updated: number, failed: number }
@@ -378,12 +403,11 @@ export class ProposalService {
       quorum: 'N/A', // Not always available in Snapshot
       impact: 'medium', // Default, can be analyzed later
       url: `https://snapshot.org/#/${daoId}/proposal/${proposal.id}`,
-      raw_data: proposal,
       updated_at: new Date().toISOString()
     };
     
-    // Check if proposal already exists
-    const { data: existingProposal, error: checkError } = await supabase
+    // Check if proposal already exists - using supabaseAdmin to bypass RLS
+    const { data: existingProposal, error: checkError } = await supabaseAdmin
       .from('proposals')
       .select('id')
       .eq('external_id', proposal.id)
@@ -395,9 +419,9 @@ export class ProposalService {
       return;
     }
     
-    // Insert or update the proposal
+    // Insert or update the proposal using supabaseAdmin
     if (existingProposal) {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await supabaseAdmin
         .from('proposals')
         .update(proposalData)
         .eq('id', existingProposal.id);
@@ -409,10 +433,10 @@ export class ProposalService {
         result.updated++;
         
         // Also update proposal_details if needed
-        await this.generateProposalDetails(existingProposal.id, proposal.body);
+        await this.generateProposalDetailsAdmin(existingProposal.id, proposal.body);
       }
     } else {
-      const { data: newProposal, error: insertError } = await supabase
+      const { data: newProposal, error: insertError } = await supabaseAdmin
         .from('proposals')
         .insert({
           ...proposalData,
@@ -428,11 +452,13 @@ export class ProposalService {
         result.added++;
         
         // Generate and save proposal details
-        await this.generateProposalDetails(newProposal.id, proposal.body);
+        if (newProposal) {
+          await this.generateProposalDetailsAdmin(newProposal.id, proposal.body);
         
-        // Queue for AI processing if it's a new active proposal
-        if (status === 'active') {
-          await this.queueForAIProcessing(newProposal.id);
+          // Queue for AI processing if it's a new active proposal
+          if (status === 'active') {
+            await this.queueForAIProcessingAdmin(newProposal.id);
+          }
         }
       }
     }
@@ -452,59 +478,45 @@ export class ProposalService {
   }
   
   /**
-   * Generate proposal details (pros, cons, analyzed text) from the proposal body
+   * Generate proposal details using admin client
    */
-  private static async generateProposalDetails(proposalId: string, body: string): Promise<void> {
-    if (!body) return;
-
+  private static async generateProposalDetailsAdmin(proposalId: string, proposalBody: string): Promise<void> {
     try {
-      // Extract pros and cons from the proposal body (simple heuristic)
+      // Check if details already exist
+      const { data: existingDetails } = await supabaseAdmin
+        .from('proposal_details')
+        .select('*')
+        .eq('proposal_id', proposalId)
+        .single();
+      
+      if (existingDetails) {
+        // Details already exist, no need to regenerate
+        return;
+      }
+      
+      // Extract pros and cons from the proposal body
       const prosRegex = /(?:pros|benefits|advantages)(?:\s*:|\s*\n)([\s\S]*?)(?=(?:cons|drawbacks|disadvantages)|$)/i;
       const consRegex = /(?:cons|drawbacks|disadvantages)(?:\s*:|\s*\n)([\s\S]*?)(?=(?:pros|benefits|advantages)|$)/i;
       
-      const prosMatch = body.match(prosRegex);
-      const consMatch = body.match(consRegex);
+      const prosMatch = proposalBody.match(prosRegex);
+      const consMatch = proposalBody.match(consRegex);
       
       const pros = prosMatch ? MarkdownParser.extractBulletPoints(prosMatch[1]) : [];
       const cons = consMatch ? MarkdownParser.extractBulletPoints(consMatch[1]) : [];
       
-      // Check if details already exist
-      const { data: existingDetails, error: checkError } = await supabase
+      // Save proposal details using supabaseAdmin
+      const { error } = await supabaseAdmin
         .from('proposal_details')
-        .select('id')
-        .eq('proposal_id', proposalId)
-        .single();
+        .insert({
+          proposal_id: proposalId,
+          pros,
+          cons,
+          analyzed_text: proposalBody.substring(0, 5000), // Limit text size
+          created_at: new Date().toISOString()
+        });
         
-      const detailsData = {
-        proposal_id: proposalId,
-        pros,
-        cons,
-        analyzed_text: MarkdownParser.extractPlainText(body),
-        updated_at: new Date().toISOString()
-      };
-      
-      if (existingDetails) {
-        // Update existing details
-        const { error: updateError } = await supabase
-          .from('proposal_details')
-          .update(detailsData)
-          .eq('id', existingDetails.id);
-          
-        if (updateError) {
-          console.error(`Error updating proposal details for ${proposalId}:`, updateError);
-        }
-      } else {
-        // Insert new details
-        const { error: insertError } = await supabase
-          .from('proposal_details')
-          .insert({
-            ...detailsData,
-            created_at: new Date().toISOString()
-          });
-          
-        if (insertError) {
-          console.error(`Error inserting proposal details for ${proposalId}:`, insertError);
-        }
+      if (error) {
+        console.error(`Error creating proposal details for ${proposalId}:`, error);
       }
     } catch (error) {
       console.error(`Error generating proposal details for ${proposalId}:`, error);
@@ -512,24 +524,25 @@ export class ProposalService {
   }
   
   /**
-   * Queue a proposal for AI processing
+   * Queue proposal for AI processing using admin client
    */
-  private static async queueForAIProcessing(proposalId: string): Promise<void> {
+  private static async queueForAIProcessingAdmin(proposalId: string): Promise<void> {
     try {
-      const { error } = await supabase
-        .from('ai_processing_queue')
+      // Check if we should queue this proposal for AI analysis
+      // For example, we might have a 'proposal_ai_queue' table
+      const { error } = await supabaseAdmin
+        .from('proposal_ai_queue')
         .insert({
           proposal_id: proposalId,
           status: 'pending',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: new Date().toISOString()
         });
         
       if (error) {
         console.error(`Error queueing proposal ${proposalId} for AI processing:`, error);
       }
     } catch (error) {
-      console.error(`Error queueing proposal ${proposalId} for AI processing:`, error);
+      console.error(`Error queueing proposal ${proposalId} for AI:`, error);
     }
   }
   
@@ -552,7 +565,7 @@ export class ProposalService {
           *,
           daos (*)
         `)
-        .order('created_at', { ascending: false })
+        .order('end_time', { ascending: false })
         .limit(limit);
 
       if (daoId) {

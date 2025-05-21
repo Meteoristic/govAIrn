@@ -1,10 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { Menu, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
+import { useAuthModal } from '@/hooks/useAuthModal';
+import { ConnectWalletModal } from '@/components/auth/ConnectWalletModal';
 
 const menuItems = [
   { name: 'How It Works', href: '#how-it-works' },
@@ -17,6 +19,9 @@ const menuItems = [
 const Navbar = () => {
   const [menuState, setMenuState] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
+  const { isAuthenticated, user } = useAuth();
+  const { isModalOpen, openAuthModal, closeAuthModal } = useAuthModal();
+  const navigate = useNavigate();
 
   // Optimize scroll listener with throttling
   useEffect(() => {
@@ -33,6 +38,12 @@ const Navbar = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isScrolled]);
   
+  // Handle launch app button click - directly navigate to dashboard
+  const handleLaunchAppClick = (e) => {
+    e.preventDefault();
+    navigate('/dashboard');
+  };
+  
   return (
     <header className="fixed z-20 w-full">
       <nav className={cn(
@@ -41,7 +52,7 @@ const Navbar = () => {
       )}>
         <div className={cn(
           'mx-auto mt-2 max-w-6xl px-6 transition-all duration-300 lg:px-12', 
-          isScrolled && 'bg-charcoal/50 max-w-4xl rounded-2xl border border-silver/10 backdrop-blur-lg lg:px-5'
+          isScrolled && 'bg-charcoal/50 max-w-4xl rounded-2xl border border-graphite/50 backdrop-blur-lg lg:px-5'
         )}>
           <div className="relative flex flex-wrap items-center justify-between gap-6 py-3 lg:gap-0 lg:py-4">
             <div className="flex w-full justify-between lg:w-auto">
@@ -50,10 +61,10 @@ const Navbar = () => {
                 aria-label="home"
                 className="flex items-center gap-2"
               >
-                <div className="h-8 w-8 rounded-full bg-indigo flex items-center justify-center">
-                  <span className="font-bold text-xl text-phosphor">g</span>
+                <div className="h-9 w-9 flex items-center justify-center">
+                  <img src="/images/govairn-logo.png" alt="govAIrn Logo" className="w-full h-full" />
                 </div>
-                <h1 className="text-xl font-bold text-phosphor">govAIrn</h1>
+                <h1 className="text-xl font-bold text-phosphor">gov<span style={{ color: '#505DFF' }}>AI</span>rn</h1>
               </Link>
 
               <button
@@ -88,7 +99,7 @@ const Navbar = () => {
             </div>
 
             <div className={cn(
-              "bg-charcoal mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border border-silver/10 p-6 shadow-2xl lg:m-0 lg:flex lg:w-fit lg:gap-6 lg:space-y-0 lg:border-transparent lg:bg-transparent lg:p-0 lg:shadow-none",
+              "bg-charcoal mb-6 hidden w-full flex-wrap items-center justify-end space-y-8 rounded-3xl border border-graphite/50 p-6 shadow-2xl lg:m-0 lg:flex lg:w-fit lg:gap-6 lg:space-y-0 lg:border-transparent lg:bg-transparent lg:p-0 lg:shadow-none",
               menuState && "block"
             )}>
               <div className="lg:hidden">
@@ -112,17 +123,21 @@ const Navbar = () => {
                   className={cn(
                     isScrolled ? "lg:inline-flex" : ""
                   )}
-                  asChild
+                  onClick={handleLaunchAppClick}
                 >
-                  <Link to="/dashboard">
-                    Launch Agent
-                  </Link>
+                  Launch App
                 </GradientButton>
               </div>
             </div>
           </div>
         </div>
       </nav>
+
+      {/* Connect Wallet Modal - not used anymore for launch but kept for other functionality */}
+      <ConnectWalletModal 
+        isOpen={isModalOpen} 
+        onClose={closeAuthModal} 
+      />
     </header>
   );
 };

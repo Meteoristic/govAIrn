@@ -5,17 +5,20 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { Bell, BellOff, LogOut, Shield, ShieldCheck, Database, Globe } from "lucide-react";
+import { Bell, BellOff, LogOut, Shield, ShieldCheck, Database, Globe, LockIcon } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import SupabaseTest from "@/components/test/SupabaseTest";
-import SnapshotIntegration from "@/components/settings/SnapshotIntegration";
+import SeedDAOs from "@/components/settings/SnapshotIntegration";
+import { useAuthModal } from "@/hooks/useAuthModal";
+import { ConnectWalletModal } from "@/components/auth/ConnectWalletModal";
 
 const Settings = () => {
   const { toast } = useToast();
-  const { logout, wallet, user } = useAuth();
+  const { logout, wallet, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { openAuthModal, isModalOpen, closeAuthModal } = useAuthModal();
   
   // Add console log to debug user object
   React.useEffect(() => {
@@ -57,6 +60,44 @@ const Settings = () => {
     navigate('/auth');
   };
 
+  // If not authenticated, show a simple message
+  if (!isAuthenticated) {
+    return (
+      <DashboardLayout>
+        <div className="p-6 md:p-8 max-w-5xl mx-auto">
+          <Card className="bg-black/30 backdrop-blur-md border-silver/10">
+            <CardHeader>
+              <div className="flex items-center justify-center mb-4">
+                <LockIcon className="h-12 w-12 text-indigo opacity-70" />
+              </div>
+              <CardTitle className="text-phosphor text-center">Authentication Required</CardTitle>
+              <CardDescription className="text-silver text-center">
+                You need to connect your wallet and sign in to access settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex justify-center">
+              <Button 
+                variant="default" 
+                className="bg-indigo hover:bg-indigo/90"
+                onClick={() => openAuthModal("settings")}
+              >
+                Connect Wallet
+              </Button>
+            </CardContent>
+          </Card>
+          
+          {/* Connect Wallet Modal */}
+          <ConnectWalletModal 
+            isOpen={isModalOpen} 
+            onClose={closeAuthModal} 
+            requiredFeature="settings"
+          />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  // Normal render for authenticated users
   return (
     <DashboardLayout>
       <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-8">
@@ -173,12 +214,12 @@ const Settings = () => {
           <CardHeader>
             <div className="flex items-center gap-2">
               <Globe className="h-5 w-5 text-indigo" />
-              <CardTitle className="text-phosphor">Proposal Sources</CardTitle>
+              <CardTitle className="text-phosphor">Seed DAOs</CardTitle>
             </div>
-            <CardDescription className="text-silver">Connect and sync proposals from Snapshot spaces</CardDescription>
+            <CardDescription className="text-silver">Seed and sync DAOs from Snapshot spaces</CardDescription>
           </CardHeader>
           <CardContent>
-            <SnapshotIntegration />
+            <SeedDAOs />
           </CardContent>
         </Card>
         

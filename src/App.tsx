@@ -24,14 +24,14 @@ const App = () => {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<Index />} />
+        
+        {/* Auth page - only shown if user navigates directly */}
         <Route path="/auth" element={<AuthPage />} />
         
+        {/* Public Dashboard - accessible without authentication */}
+        <Route path="/dashboard" element={<Dashboard />} />
+        
         {/* Protected routes */}
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        } />
         <Route path="/daos" element={
           <ProtectedRoute>
             <Daos />

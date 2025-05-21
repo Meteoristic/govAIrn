@@ -45,7 +45,6 @@ const MyPersona = () => {
   // Fetch existing persona on component mount
   useEffect(() => {
     const fetchPersona = async () => {
-      // If the wallet is not connected, we can't fetch persona
       if (!isConnected || !address) {
         console.log("No wallet connected, skipping persona fetch");
         setLoading(false);
@@ -54,14 +53,49 @@ const MyPersona = () => {
       
       try {
         console.log("Fetching persona for wallet:", address);
+        const isDevelopmentMode = import.meta.env.DEV;
         
-        // Try production flow first if user is authenticated
-        if (isAuthenticated && user?.id) {
-          console.log("User is authenticated, fetching from production tables");
+        // Development mode or no authenticated user - use wallet address directly
+        if (isDevelopmentMode || !isAuthenticated || !user?.id) {
+          console.log(isDevelopmentMode ? 
+            "Development mode: Fetching persona by wallet address" : 
+            "No authenticated user: Falling back to wallet address");
+          
+          const normalizedWalletAddress = address.toLowerCase();
+          const personaData = await PersonaService.getActivePersonaByWallet(normalizedWalletAddress);
+          
+          if (personaData) {
+            console.log("Persona found by wallet:", personaData.id);
+            setPersona(personaData);
+            
+            // Update sliders with the fetched values
+            setTimeHorizon(personaData.horizon || 50);
+            setRiskTolerance(personaData.risk || 50);
+            setEsgFocus(personaData.esg || 50);
+            setTreasuryGrowth(personaData.treasury || 50);
+            setVoteFrequency(personaData.frequency || 50);
+            
+            // Store original values for reset functionality
+            setOriginalValues({
+              risk: personaData.risk || 50,
+              esg: personaData.esg || 50,
+              treasury: personaData.treasury || 50,
+              horizon: personaData.horizon || 50,
+              frequency: personaData.frequency || 50
+            });
+            setLoading(false);
+            return;
+          } else {
+            console.log("No active persona found by wallet, will use defaults");
+          }
+        }
+        // Only try production flow if we're not in development mode AND user is authenticated
+        else if (!isDevelopmentMode && isAuthenticated && user?.id) {
+          console.log("Production mode & authenticated: Fetching from production tables for user:", user.id);
           const activePersona = await PersonaService.getActivePersona(user.id);
           
           if (activePersona) {
-            console.log("Production persona found:", activePersona);
+            console.log("Production persona found:", activePersona.id);
             setPersona(activePersona);
             
             // Update sliders with the fetched values
@@ -84,31 +118,7 @@ const MyPersona = () => {
           }
         }
         
-        // Fallback to getting persona by wallet address
-        const personaData = await PersonaService.getActivePersonaByWallet(address);
-        
-        if (personaData) {
-          console.log("Persona found by wallet:", personaData);
-          setPersona(personaData);
-          
-          // Update sliders with the fetched values
-          setTimeHorizon(personaData.horizon || 50);
-          setRiskTolerance(personaData.risk || 50);
-          setEsgFocus(personaData.esg || 50);
-          setTreasuryGrowth(personaData.treasury || 50);
-          setVoteFrequency(personaData.frequency || 50);
-          
-          // Store original values for reset functionality
-          setOriginalValues({
-            risk: personaData.risk || 50,
-            esg: personaData.esg || 50,
-            treasury: personaData.treasury || 50,
-            horizon: personaData.horizon || 50,
-            frequency: personaData.frequency || 50
-          });
-        } else {
-          console.log("No active persona found, starting with defaults");
-        }
+        console.log("No active persona found via any method, using defaults");
       } catch (err) {
         console.error('Unexpected error fetching persona:', err);
       } finally {
@@ -172,12 +182,71 @@ const MyPersona = () => {
       console.log("Is authenticated:", isAuthenticated, "User ID:", user?.id);
       console.log("Wallet address:", address);
       
-      // Try production flow if user is authenticated
-      if (isAuthenticated && user?.id) {
-        if (persona) {
-          // Update existing persona
-          console.log("Updating production persona:", persona.id);
-          try {
+      const isDevelopmentMode = import.meta.env.DEV;
+      const normalizedWalletAddress = address.toLowerCase();
+      
+      // Development mode - always use wallet address
+      if (isDevelopmentMode) {
+        console.log("Development mode: Using wallet-based persona save flow");
+        
+        try {
+          // Check if we have any existing personas for this wallet
+          const existingPersonas = await PersonaService.getPersonasByWallet(normalizedWalletAddress);
+          console.log("Existing personas for wallet:", existingPersonas.length ? existingPersonas.map(p => p.id) : 'None');
+          
+          if (persona || existingPersonas.length > 0) {
+            // Update existing persona (use the one in state, or first found if none in state)
+            const personaToUpdate = persona || existingPersonas[0];
+            console.log("Updating existing wallet-based persona:", personaToUpdate.id);
+            
+            const updatedPersona = await PersonaService.updatePersonaWithWallet(
+              personaToUpdate.id,
+              normalizedWalletAddress,
+              "My Persona",
+              personaValues,
+              true // Set as active
+            );
+            
+            console.log("Wallet-based persona updated successfully:", updatedPersona.id);
+            setPersona(updatedPersona);
+            
+            toast({
+              title: "Success",
+              description: "Your persona preferences have been updated.",
+            });
+          } else {
+            // Create new persona
+            console.log("Creating new wallet-based persona");
+            const newPersona = await PersonaService.createPersonaWithWallet(
+              normalizedWalletAddress,
+              "My Persona",
+              personaValues,
+              true // Set as active
+            );
+            
+            console.log("Wallet-based persona created successfully:", newPersona.id);
+            setPersona(newPersona);
+            
+            toast({
+              title: "Success",
+              description: "Your persona preferences have been saved.",
+            });
+          }
+        } catch (error) {
+          console.error("Error saving wallet-based persona:", error);
+          toast({
+            title: "Error",
+            description: "There was a problem saving your preferences.",
+            variant: "destructive",
+          });
+        }
+      }
+      // Production mode and authenticated - use user ID
+      else if (!isDevelopmentMode && isAuthenticated && user?.id) {
+        try {
+          if (persona) {
+            // Update existing persona
+            console.log("Updating production persona:", persona.id);
             const updatedPersona = await PersonaService.updatePersona(
               persona.id,
               "My Persona", // Name parameter
@@ -192,15 +261,9 @@ const MyPersona = () => {
               title: "Success",
               description: "Your persona preferences have been updated.",
             });
-            return;
-          } catch (error) {
-            console.error("Error updating production persona:", error);
-            // Don't return, let it fall through to the wallet-based flow
-          }
-        } else {
-          // Create new persona
-          console.log("Creating new production persona for user:", user.id);
-          try {
+          } else {
+            // Create new persona
+            console.log("Creating new production persona for user:", user.id);
             const newPersona = await PersonaService.createPersona(
               user.id,
               "My Persona", // Name parameter
@@ -215,118 +278,103 @@ const MyPersona = () => {
               title: "Success",
               description: "Your persona preferences have been saved.",
             });
-            return;
-          } catch (error) {
-            console.error("Error creating production persona:", error);
-            // Don't return, let it fall through to the wallet-based flow
+          }
+        } catch (error) {
+          console.error("Error saving production persona:", error);
+          
+          // Fallback to wallet-based flow if production flow fails
+          try {
+            console.log("Falling back to wallet-based save after production error");
+            await handleWalletBasedSave();
+          } catch (fallbackError) {
+            console.error("Fallback save also failed:", fallbackError);
+            toast({
+              title: "Error",
+              description: "There was a problem saving your preferences.",
+              variant: "destructive",
+            });
           }
         }
       }
-      
-      // Fallback to dev wallet-based flow if production flow failed or not authenticated
-      console.log("Falling back to wallet-based persona save flow");
-      const normalizedWalletAddress = address.toLowerCase();
-
-      // Check if we have any existing personas for this wallet address
-      try {
-        const existingPersonas = await PersonaService.getPersonasByWallet(normalizedWalletAddress);
-        console.log("Existing personas for wallet:", existingPersonas.length ? existingPersonas.map(p => p.id) : 'None');
-        
-        if (existingPersonas.length > 0) {
-          // Use the first one we find if we don't have a specific persona set in state
-          const personaToUpdate = persona || existingPersonas[0];
-          console.log("Updating existing wallet-based persona:", personaToUpdate.id);
-          
-          const updatedPersona = await PersonaService.updatePersonaWithWallet(
-            personaToUpdate.id,
-            normalizedWalletAddress,
-            "My Persona",
-            personaValues,
-            true // Set as active
-          );
-          
-          console.log("Wallet-based persona updated successfully:", updatedPersona.id);
-          setPersona(updatedPersona);
-          
-          toast({
-            title: "Success",
-            description: "Your persona preferences have been updated.",
-          });
-        } else {
-          // Create a new persona with wallet address
-          console.log("Creating new wallet-based persona");
-          const newPersona = await PersonaService.createPersonaWithWallet(
-            normalizedWalletAddress,
-            "My Persona",
-            personaValues,
-            true // Set as active
-          );
-          
-          console.log("Wallet-based persona created successfully:", newPersona.id);
-          setPersona(newPersona);
-          
-          toast({
-            title: "Success",
-            description: "Your persona preferences have been saved.",
-          });
-        }
-      } catch (error) {
-        // This is the critical error handler - if we get here, we need to examine the error closely
-        console.error('CRITICAL ERROR saving persona:', error);
-        console.error('Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-        
-        // Since we've already tried both production and dev flows, let's do a direct insert as a last resort
-        try {
-          console.log("Attempting direct insert as last resort");
-          
-          const { data, error: insertError } = await supabase
-            .from('dev_personas')
-            .insert({
-              user_id: crypto.randomUUID(),
-              wallet_address: normalizedWalletAddress,
-              name: 'My Persona',
-              risk: personaValues.risk,
-              esg: personaValues.esg,
-              treasury: personaValues.treasury,
-              horizon: personaValues.horizon,
-              frequency: personaValues.frequency,
-              is_active: true,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .select()
-            .single();
-          
-          if (insertError) {
-            console.error("Last resort insertion also failed:", insertError);
-            throw insertError;
-          }
-          
-          console.log("Last resort insertion successful:", data.id);
-          setPersona(data);
-          
-          toast({
-            title: "Success",
-            description: "Your persona preferences have been saved.",
-          });
-        } catch (lastError) {
-          console.error("All save attempts failed:", lastError);
-          toast({
-            title: "Error",
-            description: "Failed to save your persona preferences after multiple attempts.",
-            variant: "destructive",
-          });
-        }
+      // Not authenticated but has wallet - use wallet address
+      else if (isConnected && address) {
+        console.log("Not authenticated: Using wallet-based flow");
+        await handleWalletBasedSave();
       }
-    } catch (error) {
-      console.error('Unhandled error in persona save flow:', error);
+      // No auth or wallet - can't save
+      else {
+        console.error("Cannot save: No authentication or wallet");
+        toast({
+          title: "Error",
+          description: "Authentication or wallet connection required to save.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error("Unexpected error saving persona:", err);
       toast({
         title: "Error",
-        description: "Failed to save your persona preferences.",
+        description: "There was a problem saving your preferences.",
         variant: "destructive",
       });
     } finally {
       setSaving(false);
+    }
+  };
+  
+  // Helper function for wallet-based save logic
+  const handleWalletBasedSave = async () => {
+    const personaValues = {
+      risk: riskTolerance,
+      esg: esgFocus,
+      treasury: treasuryGrowth,
+      horizon: timeHorizon,
+      frequency: voteFrequency,
+    };
+    
+    const normalizedWalletAddress = address.toLowerCase();
+    
+    // Check if we have any existing personas for this wallet address
+    const existingPersonas = await PersonaService.getPersonasByWallet(normalizedWalletAddress);
+    console.log("Existing personas for wallet:", existingPersonas.length ? existingPersonas.map(p => p.id) : 'None');
+    
+    if (existingPersonas.length > 0) {
+      // Use the first one we find if we don't have a specific persona set in state
+      const personaToUpdate = persona || existingPersonas[0];
+      console.log("Updating existing wallet-based persona:", personaToUpdate.id);
+      
+      const updatedPersona = await PersonaService.updatePersonaWithWallet(
+        personaToUpdate.id,
+        normalizedWalletAddress,
+        "My Persona",
+        personaValues,
+        true // Set as active
+      );
+      
+      console.log("Wallet-based persona updated successfully:", updatedPersona.id);
+      setPersona(updatedPersona);
+      
+      toast({
+        title: "Success",
+        description: "Your persona preferences have been updated.",
+      });
+    } else {
+      // Create new persona with wallet
+      console.log("Creating new wallet-based persona");
+      const newPersona = await PersonaService.createPersonaWithWallet(
+        normalizedWalletAddress,
+        "My Persona",
+        personaValues,
+        true // Set as active
+      );
+      
+      console.log("Wallet-based persona created successfully:", newPersona.id);
+      setPersona(newPersona);
+      
+      toast({
+        title: "Success",
+        description: "Your persona preferences have been saved.",
+      });
     }
   };
   

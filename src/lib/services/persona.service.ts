@@ -21,17 +21,37 @@ export class PersonaService {
   static async getUserPersonas(userId: string): Promise<Persona[]> {
     if (!userId) return [];
     
-    const { data, error } = await supabase
-      .from(isDevelopmentMode ? 'dev_personas' : 'personas')
-      .select('*')
-      .eq('user_id', userId);
-    
-    if (error) {
-      console.error('Error fetching personas:', error);
-      return [];
+    // In development mode, handle the query differently since dev_personas doesn't have user_id
+    if (isDevelopmentMode) {
+      console.log('[PersonaService] Development mode: Looking for personas by wallet address instead of user_id');
+      
+      // Try to find by wallet address directly (treating userId as wallet address)
+      const normalizedWallet = userId.toLowerCase();
+      const { data, error } = await supabase
+        .from('dev_personas')
+        .select('*')
+        .eq('wallet_address', normalizedWallet);
+      
+      if (error) {
+        console.error('[PersonaService] Error fetching personas in dev mode:', error);
+        return [];
+      }
+      
+      return data || [];
+    } else {
+      // Production mode - use user_id which exists in the production personas table
+      const { data, error } = await supabase
+        .from('personas')
+        .select('*')
+        .eq('user_id', userId);
+      
+      if (error) {
+        console.error('Error fetching personas:', error);
+        return [];
+      }
+      
+      return data || [];
     }
-    
-    return data || [];
   }
   
   /**
@@ -40,25 +60,57 @@ export class PersonaService {
   static async getActivePersona(userId: string): Promise<Persona | null> {
     if (!userId) return null;
     
-    const { data, error } = await supabase
-      .from(isDevelopmentMode ? 'dev_personas' : 'personas')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .maybeSingle();
-    
-    if (error) {
-      console.error('Error fetching active persona:', error);
-      return null;
+    // In development mode, handle the query differently since dev_personas doesn't have user_id
+    if (isDevelopmentMode) {
+      console.log('[PersonaService] Development mode: Looking for active persona by wallet address instead of user_id');
+      
+      // Normalize the wallet address to lowercase for consistency
+      const normalizedWalletAddress = userId.toLowerCase();
+      console.log('[PersonaService] Searching for active persona with wallet address:', normalizedWalletAddress);
+      
+      // Only search by wallet_address in dev mode
+      const { data, error } = await supabase
+        .from('dev_personas')
+        .select('*')
+        .eq('wallet_address', normalizedWalletAddress)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('[PersonaService] Error fetching active persona in dev mode:', error);
+        return null;
+      }
+      
+      if (data) {
+        console.log('[PersonaService] Found active persona in dev mode:', data.id);
+      } else {
+        console.log('[PersonaService] No active persona found with wallet:', normalizedWalletAddress);
+      }
+      
+      return data;
+    } else {
+      // Production mode - use user_id which exists in the production personas table
+      const { data, error } = await supabase
+        .from('personas')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .maybeSingle();
+      
+      if (error) {
+        console.error('Error fetching active persona:', error);
+        return null;
+      }
+      
+      return data;
     }
-    
-    return data;
   }
   
   /**
    * Get a specific persona by ID
    */
   static async getPersonaById(personaId: string): Promise<Persona | null> {
+    // Both tables have id column so this doesn't need different handling
     const { data, error } = await supabase
       .from(isDevelopmentMode ? 'dev_personas' : 'personas')
       .select('*')
@@ -290,18 +342,39 @@ export class PersonaService {
     values: PersonaValues, 
     isActive: boolean = false
   ): Promise<Persona> {
-    const { data: existingPersona, error: findError } = await supabase
-      .from(isDevelopmentMode ? 'dev_personas' : 'personas')
-      .select('user_id')
-      .eq('id', personaId)
-      .single();
+    // Get existing persona differently based on mode
+    let userId: string | null = null;
     
-    if (findError) {
-      console.error('Error finding persona:', findError);
-      throw findError;
+    if (isDevelopmentMode) {
+      // In dev mode, get the wallet address instead of user_id
+      const { data: existingPersona, error: findError } = await supabase
+        .from('dev_personas')
+        .select('wallet_address')
+        .eq('id', personaId)
+        .single();
+      
+      if (findError) {
+        console.error('[PersonaService] Error finding dev persona:', findError);
+        throw findError;
+      }
+      
+      userId = existingPersona.wallet_address;
+      console.log('[PersonaService] Dev mode: Found persona with wallet:', userId);
+    } else {
+      // In production, get the user_id
+      const { data: existingPersona, error: findError } = await supabase
+        .from('personas')
+        .select('user_id')
+        .eq('id', personaId)
+        .single();
+      
+      if (findError) {
+        console.error('[PersonaService] Error finding persona:', findError);
+        throw findError;
+      }
+      
+      userId = existingPersona.user_id;
     }
-    
-    const userId = existingPersona.user_id;
     
     const { data, error } = await supabase
       .from(isDevelopmentMode ? 'dev_personas' : 'personas')
@@ -319,17 +392,27 @@ export class PersonaService {
       .single();
     
     if (error) {
-      console.error('Error updating persona:', error);
+      console.error('[PersonaService] Error updating persona:', error);
       throw error;
     }
     
     // If this is active, deactivate other personas
-    if (isActive) {
-      await supabase
-        .from(isDevelopmentMode ? 'dev_personas' : 'personas')
-        .update({ is_active: false })
-        .eq('user_id', userId)
-        .neq('id', personaId);
+    if (isActive && userId) {
+      if (isDevelopmentMode) {
+        // In dev mode, use wallet_address
+        await supabase
+          .from('dev_personas')
+          .update({ is_active: false })
+          .eq('wallet_address', userId)
+          .neq('id', personaId);
+      } else {
+        // In production, use user_id
+        await supabase
+          .from('personas')
+          .update({ is_active: false })
+          .eq('user_id', userId)
+          .neq('id', personaId);
+      }
     }
     
     return data;
@@ -442,17 +525,34 @@ export class PersonaService {
    * Create default persona for new users
    */
   static async createDefaultPersona(userId: string): Promise<Persona> {
-    return this.createPersona(
-      userId,
-      'Default Persona',
-      {
-        risk: 50,
-        esg: 50,
-        treasury: 50,
-        horizon: 50,
-        frequency: 10
-      },
-      true // Set as active
-    );
+    if (isDevelopmentMode) {
+      // In dev mode, use the userId as a wallet address
+      return this.createPersonaWithWallet(
+        userId,
+        'Default Persona',
+        {
+          risk: 50,
+          esg: 50,
+          treasury: 50,
+          horizon: 50,
+          frequency: 10
+        },
+        true // Set as active
+      );
+    } else {
+      // In production, use the regular createPersona
+      return this.createPersona(
+        userId,
+        'Default Persona',
+        {
+          risk: 50,
+          esg: 50,
+          treasury: 50,
+          horizon: 50,
+          frequency: 10
+        },
+        true // Set as active
+      );
+    }
   }
 }
