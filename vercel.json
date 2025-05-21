@@ -16,5 +16,19 @@
         { "key": "X-XSS-Protection", "value": "1; mode=block" }
       ]
     }
+  ],
+  "routes": [
+    { 
+      "src": "/assets/(.*)", 
+      "dest": "/assets/$1" 
+    },
+    { 
+      "src": "/favicon.ico", 
+      "dest": "/favicon.ico" 
+    },
+    { 
+      "src": "/(.*)", 
+      "dest": "/index.html" 
+    }
   ]
 } 

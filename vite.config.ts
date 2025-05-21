@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 // Instead of directly importing, we'll handle this conditionally
@@ -6,6 +6,9 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
+  // Load env file based on mode
+  const env = loadEnv(mode, process.cwd(), '');
+
   // Conditionally load plugins to avoid errors in production/Vercel
   const plugins = [react()];
   
@@ -27,11 +30,22 @@ export default defineConfig(({ mode }) => {
       host: "::",
       port: 8080,
     },
+    build: {
+      outDir: 'dist',
+      sourcemap: mode !== 'production',
+      // Increase chunk size warning limit to avoid unnecessary warnings
+      chunkSizeWarningLimit: 1600,
+    },
     plugins,
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },
     },
+    define: {
+      // Make env variables available to the app
+      '__APP_ENV__': JSON.stringify(mode),
+      '__IS_DEV__': mode === 'development'
+    }
   };
 });

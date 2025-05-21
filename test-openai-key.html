@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAI API Key Tester</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      color: #2563eb;
+      margin-bottom: 30px;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-family: inherit;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    .result {
+      background: #f0f9ff;
+      border-left: 4px solid #2563eb;
+      padding: 15px;
+      margin-top: 20px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    .error {
+      background: #fff5f5;
+      border-left: 4px solid #ef4444;
+      padding: 15px;
+      margin-top: 20px;
+    }
+    .success {
+      background: #f0fff4;
+      border-left: 4px solid #10b981;
+      padding: 15px;
+      margin-top: 20px;
+    }
+    .storage-status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-left: 10px;
+    }
+    .storage-status.set {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .storage-status.not-set {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    #copyBtn {
+      background: #4b5563;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>OpenAI API Key Tester for govAIrn</h1>
+  
+  <div class="card">
+    <h2>Set API Key in localStorage</h2>
+    <p>
+      Status: 
+      <span id="storageStatus" class="storage-status not-set">Not Set</span>
+      <button id="checkStorageBtn">Check Storage</button>
+    </p>
+    
+    <label for="apiKey">Your OpenAI API Key:</label>
+    <input type="text" id="apiKey" placeholder="sk-..." />
+    
+    <button id="saveKeyBtn">Save to localStorage</button>
+    <button id="clearKeyBtn">Clear from localStorage</button>
+  </div>
+  
+  <div class="card">
+    <h2>Test API Connection</h2>
+    
+    <label for="testPrompt">Test Prompt:</label>
+    <textarea id="testPrompt" rows="3">Give me a very brief summary of governance proposals in one sentence.</textarea>
+    
+    <button id="testApiBtn">Test API Connection</button>
+    
+    <div id="apiResult" style="display: none;" class="result"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Implementation in your code</h2>
+    <p>Add this in your browser console to make the proposals work:</p>
+    <div class="result">
+      localStorage.setItem('OPENAI_API_KEY', 'your-api-key-here');
+    </div>
+    <button id="copyCodeBtn">Copy to clipboard</button>
+  </div>
+  
+  <div class="card">
+    <h2>Instructions</h2>
+    <ol>
+      <li>Enter your OpenAI API key in the field above</li>
+      <li>Click "Save to localStorage" to store it in your browser</li>
+      <li>Test the connection by clicking "Test API Connection"</li>
+      <li>If successful, reload govAIrn and try loading live proposals again</li>
+    </ol>
+    <p><strong>Note:</strong> This is only a temporary solution for testing. For production, ensure your API key is correctly set in your environment variables.</p>
+  </div>
+  
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const apiKeyInput = document.getElementById('apiKey');
+      const saveKeyBtn = document.getElementById('saveKeyBtn');
+      const clearKeyBtn = document.getElementById('clearKeyBtn');
+      const testApiBtn = document.getElementById('testApiBtn');
+      const testPromptInput = document.getElementById('testPrompt');
+      const apiResult = document.getElementById('apiResult');
+      const storageStatus = document.getElementById('storageStatus');
+      const checkStorageBtn = document.getElementById('checkStorageBtn');
+      const copyCodeBtn = document.getElementById('copyCodeBtn');
+      
+      // Check if API key is in localStorage
+      function checkStorage() {
+        const storedKey = localStorage.getItem('OPENAI_API_KEY');
+        if (storedKey) {
+          storageStatus.textContent = `Set (${storedKey.substring(0, 4)}...)`;
+          storageStatus.className = 'storage-status set';
+          apiKeyInput.value = storedKey;
+        } else {
+          storageStatus.textContent = 'Not Set';
+          storageStatus.className = 'storage-status not-set';
+        }
+      }
+      
+      // Initial check
+      checkStorage();
+      
+      // Save API key to localStorage
+      saveKeyBtn.addEventListener('click', function() {
+        const apiKey = apiKeyInput.value.trim();
+        if (!apiKey) {
+          alert('Please enter an API key');
+          return;
+        }
+        
+        localStorage.setItem('OPENAI_API_KEY', apiKey);
+        checkStorage();
+        
+        apiResult.innerHTML = `<div class="success">API key saved to localStorage. Length: ${apiKey.length} characters</div>`;
+        apiResult.style.display = 'block';
+      });
+      
+      // Clear API key from localStorage
+      clearKeyBtn.addEventListener('click', function() {
+        localStorage.removeItem('OPENAI_API_KEY');
+        checkStorage();
+        apiKeyInput.value = '';
+        
+        apiResult.innerHTML = '<div class="success">API key removed from localStorage</div>';
+        apiResult.style.display = 'block';
+      });
+      
+      // Test API connection
+      testApiBtn.addEventListener('click', async function() {
+        const apiKey = localStorage.getItem('OPENAI_API_KEY');
+        if (!apiKey) {
+          apiResult.innerHTML = '<div class="error">No API key found in localStorage. Please save your key first.</div>';
+          apiResult.style.display = 'block';
+          return;
+        }
+        
+        const prompt = testPromptInput.value.trim() || 'Hello, world!';
+        
+        apiResult.innerHTML = 'Testing API connection...';
+        apiResult.style.display = 'block';
+        
+        try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: prompt }
+              ],
+              max_tokens: 150
+            })
+          });
+          
+          const data = await response.json();
+          
+          if (data.error) {
+            apiResult.innerHTML = `<div class="error">API Error: ${data.error.message}</div>`;
+          } else {
+            const content = data.choices[0].message.content;
+            apiResult.innerHTML = `<div class="success">API connection successful!</div>
+<strong>Response:</strong><br>
+${content}
+
+<strong>Full JSON Response:</strong>
+<pre>${JSON.stringify(data, null, 2)}</pre>`;
+          }
+        } catch (error) {
+          apiResult.innerHTML = `<div class="error">Error: ${error.message}</div>`;
+        }
+      });
+      
+      // Check storage button
+      checkStorageBtn.addEventListener('click', checkStorage);
+      
+      // Copy code button
+      copyCodeBtn.addEventListener('click', function() {
+        const apiKey = apiKeyInput.value.trim() || 'your-api-key-here';
+        const code = `localStorage.setItem('OPENAI_API_KEY', '${apiKey}');`;
+        
+        navigator.clipboard.writeText(code).then(function() {
+          copyCodeBtn.textContent = 'Copied!';
+          setTimeout(() => {
+            copyCodeBtn.textContent = 'Copy to clipboard';
+          }, 2000);
+        });
+      });
+    });
+  </script>
+</body>
+</html> 
